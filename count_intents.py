@@ -16,13 +16,31 @@ from collections import Counter, defaultdict
 from data_loader import strip_diacritics
 
 # Teencode/viết tắt -> dạng chuẩn (áp trên chuỗi đã bỏ dấu, lower).
+_TELEX_STEMS = {"thang", "tinh", "ngay", "cua", "no", "sang", "hang", "tien", "ban", "don", "nhat", "het", "nhap", "moi",
+                "quan", "quy", "cao", "trong", "mon", "khach", "bao", "nhieu", "duoc", "doanh", "thu", "tong", "chieu", "gia"}
+
+
+def _telex(m: re.Match) -> str:
+    """Gõ Telex không bật bộ gõ: nhaats->nhat, mooix->moi, heets->het, tieenf->tien, thangs->thang, cuar->cua."""
+    w = m.group(0)
+    d = re.sub(r"(aa|ee|oo|dd)", lambda x: x.group(1)[0], w)
+    d = re.sub(r"([aou])w", r"\1", d)  # ă/ơ/ư: mawtj, dduwowcj
+    if d != w and len(d) > 2 and d[-1] in "sfrxj":
+        return d[:-1]
+    if d == w and w[-1] in "sfrxj" and w[:-1] in _TELEX_STEMS:
+        return w[:-1]
+    return d
+
+
 TEEN = [
+    (r"≥|>=", " tu "), (r"≤|<=", " den "),
     (r"[^\w\s/%.,:+-]", " "),  # emoji, ký hiệu lạ
+    (r"\b[a-z]+\b", _telex),
     (r"\b(bao nhiu|bnhiu|bnhieu|bao nhieeu|bnh|bn|nhiu)\b", "bao nhieu"),
     (r"(?<!bao )\bnhieu\b(?! (nhat|hon|don|lan|ngay|khach|tien|ly|loai|nguoi))", "bao nhieu"),
     (r"\b(dc|đc|duoj|duowc|duocj|dduoc)\b", "duoc"), (r"\b(jum|gium|dum)\b", "giup"),
     (r"\b(nhut|nhatt)\b", "nhat"), (r"\b(nhiu|nhiuu)\b", "nhieu"),
-    (r"\b(dh|đh|o do|order)\b", "don"), (r"\bddown\b", "don"), (r"\bdthu\b", "doanh thu"),
+    (r"\b(dh|đh|o do|order)\b", "don"), (r"\b(ddown|down)\b", "don"), (r"\bbest ?seller\b", "ban chay nhat"), (r"\bchay nhat\b", "ban chay nhat"), (r"\bdthu\b", "doanh thu"),
     (r"\b(hnay|hum nay|hoom nay|bua nay|bua ni|hom ni)\b", "hom nay"), (r"\b(hqua|bua qua|hum qua)\b", "hom qua"),
     (r"\b(ni)\b", "nay"), (r"\b(trc|trk)\b", "truoc"), (r"\b(rui|roi)\b", "roi"),
     (r"\b(mik|mjk|minh)\b", "minh"), (r"\b(ko|k|hok|hong|khum|hem)\b(?=\s|$|\?)", "khong"),
@@ -44,7 +62,7 @@ RULES: list[tuple[str, str]] = [
                      r"(ba bau|tre em|tre so sinh|cho con bu|phu nu co thai).*(dung|uong|an)|lieu dung|uong may|"
                      r"tac dung phu|chua (benh|dau)|thoi tiet|gioi tinh|khach (nu|nam)\b|dia chi|ly do|vi sao|tai sao"),
     ("+customer_address", r"khach (o|duong|tai|khu|phuong|quan) [a-z]"),
-    ("installment", r"tra gop|ky gop|\bgop\b|cham gop"),
+    ("installment", r"tra gop|ky gop|(?<!dong )(?<!loi )(?<!lai )\bgop\b|cham gop"),
     ("tradein", r"\bmay cu\b|\bthu cu\b|tro gia|thu lai may|doi may cu"),
     ("+customer_pays", r"khach phai tra"),
     ("warranty", r"bao hanh"),
@@ -74,7 +92,7 @@ RULES: list[tuple[str, str]] = [
     ("+new_member", r"thanh vien moi|dang ky"),
     ("count_customers", r"(bao nhieu|may|so|tong) khach"),
     ("product_in_n_orders", r"xuat hien .{0,30}\d+ don|uu chuong nhat|co mat trong"),
-    ("+unsold_items", r"\be\b|khong ban (ra |duoc )|ban hong|ban khong duoc|chua ban duoc|khong co don nao"),
+    ("+unsold_items", r"(mat hang|hang|mon|san pham|thuoc) (bi )?e\b|\be han\b|\be ca\b|khong ban (ra |duoc )|ban hong|ban khong duoc|chua ban duoc|khong co don nao"),
     ("+delivery", r"dot giao|dot hang|cho giao|cho di|luot giao|chua giao|da giao"),
     ("day_threshold_count", r"(bao nhieu|may) ngay .{0,40}(tu|tro len|dat|tren|duoi)"),
     ("daily_max", r"(ngay|hom|thang|tuan|gio) nao|dat khach nhat|gio cao diem|thu may"),
@@ -82,7 +100,7 @@ RULES: list[tuple[str, str]] = [
     ("avg_per_order", r"(trung binh|binh quan|gia tri) .{0,25}(don|bill|hoa don|phieu)"),
     ("revenue_by_shift", r"\bca (sang|chieu|toi)\b|bao cao ca"),
     ("revenue_by_payment", r"tien mat|chuyen khoan|\bcod\b|vi dien tu|quet the|hinh thuc thanh toan|tra bang|tien tuoi|momo"),
-    ("revenue_by_channel", r"tai quay|zalo|dien thoai|online|shopee|lazada|tiktok|\bsan\b|kenh|grab|giao di|facebook|web"),
+    ("revenue_by_channel", r"tai quay|zalo|dien thoai|online|shopee|lazada|tiktok|\bsan\b(?! pham)|kenh|grab|giao di|facebook|web"),
     ("revenue_by_employee", r"nhan vien"),
     ("revenue_by_category", r"\bnhom\b|\bloai\b|size (m|l)\b"),
     ("comparison_percent", r"so voi|hon hay kem|tang hay giam|tang truong|len hay xuong|thay doi|chenh|so (thang|tuan|nam|ky)"),

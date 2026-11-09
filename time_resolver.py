@@ -190,6 +190,14 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
         d2 = _mk_date(m.group(4), m.group(5), m.group(6), today)
         if d1 and d2:
             add(m.start(), _period(d1, d2, "range", f"{d1} → {d2}"))
+    # "từ ngày 1/1 đến hết hôm nay (, năm nay)": ngày không năm = năm nay
+    for m in re.finditer(r"tu(?: ngay)? " + _DATE + r"(?: nam nay)? (?:den|toi)(?: het)?(?: ngay)? hom nay(?:,? (?:doanh thu )?nam nay)?", q):
+        d1 = _mk_date(m.group(1), m.group(2), m.group(3), today)
+        if d1 and take(m):
+            add(m.start(), _period(d1, today, "range", f"{d1} → hôm nay"))
+    for m in re.finditer(r"nam nay", q):  # "năm nay" đi kèm khoảng đã ghi rõ thì không phải kỳ riêng
+        if any(p["kind"] == "range" and p["end"] == today.isoformat() for _, p in found):
+            take(m)
 
     # 5) Tháng này / từ đầu tháng này đến hết hôm nay; cùng kỳ tháng trước (§2).
     has_this_month = re.search(r"thang nay", q) is not None
@@ -298,7 +306,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
             add(m.start(), _period(date(y, 1, 1), date(y, 12, 31), "year", f"năm {y}"))
 
     # 13) Ngày D đứng một mình.
-    for m in re.finditer(r"(?<![\d/])" + _DATE + r"(?![\d/])", q):
+    for m in re.finditer(r"(?<![\d/.,x])" + _DATE + r"(?![\d/]|[.,]?[a-z])", q):
         if take(m):
             d = _mk_date(m.group(1), m.group(2), m.group(3), today)
             if d:

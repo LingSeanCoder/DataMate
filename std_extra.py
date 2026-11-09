@@ -65,7 +65,7 @@ def build_order_money(conn, cols, meta: dict) -> int:
         if fk is None:
             continue
         pick = {
-            "amount_due": _pick(cs, "amount_due", ("tongthanhtoan", "phaitra", "phaithu", "tongbill", "cantra"), "number"),
+            "amount_due": _pick(cs, "amount_due", ("tongthanhtoan", "phaitra", "phaithu", "tongbill", "cantra", "tongsaugiam", "sausaugiam", "tongtiensau"), "number"),
             "paid_total": _pick(cs, "paid", ("khachtra", "dathu", "datra", "dathanhtoan", "khachdua"), "number"),
             "debt_snapshot": _pick(cs, "debt_remaining", ("conno", "congno", "duno", "nohientai", "chuatra", "conlai"), "number"),
             "ship_fee": _pick(cs, (), ("phiship", "phigiao", "phivanchuyen", "ship"), "number"),
@@ -76,6 +76,8 @@ def build_order_money(conn, cols, meta: dict) -> int:
             or (_pick(cs, (), ("giamgiahd", "giamgiadon", "tiengiam", "giamgia", "chietkhau"), "number")
                 if t == meta.get("header_table") else None),
         }
+        if pick["amount_due"] is None and t == meta.get("header_table"):  # cột đúng tên "Tổng tiền" (khác "Tổng tiền hàng")
+            pick["amount_due"] = _first(cs, lambda c: c.kind == "number" and bool(c.keys & {"tongtien", "tongcong"}))
         if pick["amount_due"] is None and t == meta.get("header_table"):  # "Thành tiền: tổng tiền đơn" ở bảng đơn
             pick["amount_due"] = _first(cs, lambda c: c.kind == "number" and c.role == "order_level"
                                         and c.desc and re.match(r"tong tien (cua )?(ca )?don", strip_diacritics(c.desc).lower()))
@@ -96,6 +98,11 @@ def build_order_money(conn, cols, meta: dict) -> int:
         if k not in out:
             out[k] = None
     out = out.reset_index()[["order_id", "amount_due", "paid_total", "debt_snapshot", "ship_fee", "order_discount"]]
+    if out["amount_due"].isna().all():  # §4: tổng đơn = tiền hàng − giảm giá cả đơn + phí giao
+        rev = dict(conn.execute("SELECT order_id, revenue FROM std_orders").fetchall())
+        out["amount_due"] = (out["order_id"].map(rev).astype(float) - pd.to_numeric(out["order_discount"], errors="coerce").fillna(0)
+                             + pd.to_numeric(out["ship_fee"], errors="coerce").fillna(0))
+        meta["money.amount_due"] = "(tính: doanh thu − giảm đơn + ship)"
     conn.execute("DROP TABLE IF EXISTS std_order_money")
     out.to_sql("std_order_money", conn, index=False)
     return len(out)
@@ -116,7 +123,8 @@ def build_payments(conn, cols, meta: dict) -> int:
         if any(c.role in ("qty", "qty_base") or (c.role in (None, "other") and c.has("soluong")) for c in cs):
             continue  # bảng dòng hàng/nhập, không phải phiếu thu
         amt = _pick(cs, ("paid", "line_revenue"), ("sotienthu", "tienthu", "sotien", "giatri", "tien", "amount"), "number")
-        dt = _best(cs, lambda c: 3 if c.kind == "date" else 0)
+        dt = _best(cs, lambda c: 3 if c.kind == "date" else
+                   (2 if c.kind == "text" and c.has("thoidiem", "thoigian", "ngay", "date", "time") else 0))
         if not (amt and dt):
             continue
         df = _read(conn, t)
@@ -371,6 +379,21 @@ def customer_key(cid, name) -> str | None:
     return "nm:" + letters + (("|" + digits[-9:]) if len(digits) >= 9 else "")
 
 
+def _strip_phone(x: str) -> str:
+    """'Dương Hùng Trung - 0328 548 455', 'Đặng Hải Nhung (0913885954)' -> tên."""
+    return re.sub(r"\s*[-–(,]?\s*\(?\+?\d[\d .]{7,}\)?\s*$", "", x).strip()
+
+
+def _best_name(s: pd.Series):
+    """Cách viết phổ biến nhất, ưu tiên bản có dấu ('Hứa Bích An' hơn 'Hua Bich An')."""
+    s = s.dropna()
+    if s.empty:
+        return None
+    vc = s.value_counts()
+    accented = [n for n in vc.index if str(n) != strip_diacritics(str(n))]
+    return accented[0] if accented else vc.index[0]
+
+
 def build_customers(conn, cols, meta: dict) -> int:
     o = pd.read_sql_query("SELECT rowid AS rid, customer_id, customer_name FROM std_orders", conn)
     if o.empty:
@@ -386,16 +409,19 @@ def build_customers(conn, cols, meta: dict) -> int:
     named = cur.dropna(subset=["customer_key"])
     cust = named.groupby("customer_key").agg(
         customer_id=("customer_id", "first"),
-        customer_name=("customer_name", lambda s: s.dropna().value_counts().idxmax() if s.notna().any() else None)).reset_index()
+        customer_name=("customer_name", _best_name)).reset_index()
     for c in ("customer_group", "phone", "register_date"):
         cust[c] = None
     # thuộc tính từ bảng khách (nối theo mã, không có mã thì theo tên)
     for t, cs in cols.items():
         if t in (meta.get("header_table"), meta.get("line_table")):
             continue
-        grp = _first(cs, lambda c: c.kind == "text" and (c.role == "customer_group" or c.has("nhomkhach", "loaikhach", "nhomkh")))
+        grp = _first(cs, lambda c: c.kind == "text" and (c.role == "customer_group" or c.has("nhomkhach", "loaikhach", "nhomkh", "hangkhach", "hangthanhvien")
+                                                         or bool(c.keys & {"hang", "nhom", "capdo"})))
         reg = _first(cs, lambda c: c.kind == "date" and c.has("dangky", "ngaytao", "taoluc"))
         ph = _first(cs, lambda c: c.kind == "text" and c.has("sdt", "dienthoai", "phone", "didong"))
+        nm = _first(cs, lambda c: c.kind == "text" and c.role in (None, "other", "customer_name", "product_name") and
+                    c.has("tenkhach", "khachhangten", "hoten", "tenkh", "customername", "khachhang") and not c.has("ma", "id", "loai"))
         if not (grp or reg or ph):
             continue
         df = _read(conn, t)
@@ -418,6 +444,15 @@ def build_customers(conn, cols, meta: dict) -> int:
         for field, c in (("customer_group", grp), ("register_date", reg), ("phone", ph)):
             if c is not None:
                 cust[field] = cust[field].where(cust[field].notna(), cust["customer_key"].map(df[c.name]))
+        if nm is None:  # tên cột lạ ('kh', 'tengoi', 'khach_le_si'): nhận theo giá trị — tên người 2–5 chữ, không số, gần như duy nhất
+            def _looks_name(col):
+                v = df[col].dropna().astype(str)
+                return len(v) > 0 and v.nunique() >= 0.5 * len(v) and \
+                    v.map(lambda x: 2 <= len(_strip_phone(x).split()) <= 5 and not re.search(r"\d", _strip_phone(x))).mean() >= 0.8
+            nm = _first(sorted(cs, key=lambda c: -c.n_distinct), lambda c: c.kind == "text" and _looks_name(c.name))
+        if nm is not None and has_ids:  # tên chuẩn trong bảng khách (đơn chỉ ghi mã, hoặc ghi nhiều cách viết)
+            names = df[nm.name].map(lambda x: _strip_phone(str(x)) if x is not None and x == x else None)
+            cust["customer_name"] = cust["customer_key"].map(names).where(lambda x: x.notna(), cust["customer_name"])
         meta["customers.attrs_table"] = t
     # khách đăng ký thành viên nhưng chưa mua (rulebook mẹ & bé: thành viên mới tính cả khách chưa mua)
     conn.execute("DROP TABLE IF EXISTS std_customers")

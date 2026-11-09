@@ -51,7 +51,9 @@ def _catalog(db_path: str) -> dict:
         custs = conn.execute(
             "SELECT DISTINCT customer_name, customer_id FROM std_orders WHERE customer_name IS NOT NULL OR customer_id IS NOT NULL"
         ).fetchall() if _has(conn, "std_orders") else []
-        ingredients = []
+        if _has(conn, "std_customers"):  # đơn chỉ ghi mã khách: tên nằm ở bảng khách
+            custs += conn.execute("SELECT customer_name, customer_id FROM std_customers WHERE customer_name IS NOT NULL").fetchall()
+        ingredients = distinct_safe(conn, "SELECT DISTINCT active_ingredient FROM std_products")
         for t, c in conn.execute("SELECT table_name, column_name FROM _meta_columns"):
             if "hoatchat" in re.sub(r"[^a-z]", "", strip_diacritics(c).lower()):
                 ingredients += [r[0] for r in conn.execute(f'SELECT DISTINCT "{c}" FROM "{t}" WHERE "{c}" IS NOT NULL')]
@@ -95,8 +97,8 @@ SYNONYMS = {
         ("san thuong mai dien tu", "san tmdt", "tmdt"),
     ],
     "payment": [
-        ("tien mat", "cash"),
-        ("chuyen khoan", "transfer"),
+        ("tien mat", "cash", "tm", "tien tuoi"),
+        ("chuyen khoan", "transfer", "ck"),
         ("vi dien tu", "ewallet", "momo"),
         ("thu ho cod", "thu ho", "cod", "xi o di"),
         ("ghi no", "debt"),
@@ -129,6 +131,13 @@ def _code_names(conn, codes: list[str]) -> dict[str, str]:
     return out
 
 
+def distinct_safe(conn, sql: str) -> list[str]:
+    try:
+        return [str(r[0]) for r in conn.execute(sql) if r[0] not in (None, "")]
+    except sqlite3.Error:
+        return []
+
+
 def _has(conn, table: str) -> bool:
     return conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (table,)).fetchone() is not None
 
@@ -139,6 +148,12 @@ def _tok_hit(tok: str, qset: set[str], qtoks: list[str]) -> bool:
     if len(tok) < 4 or tok.isdigit():
         return False  # từ ngắn/số phải khớp đúng (10mg ≠ 20mg, m ≠ l)
     return any(len(q) >= 3 and SequenceMatcher(None, tok, q).ratio() >= 0.85 for q in qtoks)
+
+
+def _adjacent(toks: list[str], qtoks: list[str], qset: set[str]) -> bool:
+    """Có 2 từ liền nhau của tên cũng đứng liền nhau trong câu."""
+    pos = [{i for i, q in enumerate(qtoks) if _tok_hit(t, {q}, [q])} for t in toks]
+    return any(i + 1 in b for a, b in zip(pos, pos[1:]) for i in a)
 
 
 def match_product(question: str, db_path: str) -> list[dict]:
@@ -160,7 +175,8 @@ def match_product(question: str, db_path: str) -> list[dict]:
             continue  # tên có size mà câu không nói size đó
         score = sum(idf.get(t, 1.0) for t in hit) / total if total else 0
         rare_hit = max((idf.get(t, 1.0) for t in hit), default=0)
-        if score >= 0.6 and rare_hit >= 1.0:
+        # từ của tên rải rác trong câu ("từ ... bao nhiêu" ≠ "Bao tử xào") thì bỏ
+        if score >= 0.6 and rare_hit >= 1.0 and (len(toks) < 2 or _adjacent(toks, qtoks, qset)):
             out.append({"name": name, "id": pid, "confidence": round(score, 3), "_n": len(hit)})
     out.sort(key=lambda d: (-d["confidence"], -d["_n"], d["name"]))
     for d in out:
@@ -189,8 +205,8 @@ def extract_entities(question: str, db_path: str) -> dict:
             if customer is None or len(name) > len(customer["name"] or ""):
                 customer = {"name": name, "id": cid}
 
-    k = re.search(r"\btop ?(\d+)\b|\b(\d+) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|ngay|hang|loai)\b", qn)
-    unit = re.search(r"\b(?:bao nhieu|may|so|total may|tong so) (" + "|".join(UNITS) + r")\b", qn)
+    k = re.search(r"\btop ?(\d+)\b|(?<![\d/.-])\b(\d{1,2}) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|ngay|hang|loai)\b", qn)
+    unit = re.search(r"\b(?:bao nhieu|may|so|total may|tong so) (" + "|".join(UNITS) + r")\b(?! tram)", qn)
     size = re.search(r"\bsize (m|l)\b", _norm_keep_paren(question))
     # câu có dấu thì khớp giữ dấu, câu gõ không dấu thì khớp bỏ dấu
     nm = _norm_d if strip_diacritics(question) != question else _norm
@@ -216,6 +232,11 @@ def extract_entities(question: str, db_path: str) -> dict:
         # cụm dài đã khớp thì bỏ cụm ngắn nằm trong nó (vd 'Size XL' với 'Size L')
         ordered = []
         for _, v in sorted(hits, key=lambda h: (h[0], -len(h[1]))):
+            said_group = re.search(rf"\b(nhom|loai|danh muc)( hang)? {re.escape(_norm(v))}\b", qn)
+            if attr == "category" and nm is _norm and len(_tokens(v)) == 1 and not said_group:
+                continue  # câu không dấu: 'tra' (trà/trả) một từ chỉ là nhóm khi có 'nhóm' đứng trước
+            if attr == "category" and said_group and in_product:
+                products, in_product = [], ""  # "nhóm hàng hải sản" thắng "Lẩu nấm hải sản"
             if f" {nm(v)} " in f" {in_product} ":
                 continue  # 'bia' trong 'Bia Heineken 330ml' là tên hàng, không phải lọc nhóm
             if v not in ordered and not any(f" {_norm(v)} " in f" {_norm(o)} " for o in ordered):

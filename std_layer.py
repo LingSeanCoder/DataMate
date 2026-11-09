@@ -220,6 +220,12 @@ def _first(cols: list[Col], pred) -> Col | None:
     return next((c for c in cols if pred(c)), None)
 
 
+def _most(cols: list[Col], pred) -> Col | None:
+    """Như _first nhưng nhiều cột khớp thì lấy cột nhiều giá trị nhất ('Nhóm hàng' 9 giá trị hơn 'Loại hàng' chỉ 'Hàng hóa')."""
+    hits = [c for c in cols if pred(c)]
+    return max(hits, key=lambda c: c.n_distinct) if hits else None
+
+
 def _best(cols: list[Col], rank) -> Col | None:
     scored = [(rank(c), i, c) for i, c in enumerate(cols) if rank(c) > 0]
     return max(scored, key=lambda t: (t[0], -t[1]))[2] if scored else None
@@ -231,7 +237,8 @@ def _load_cols(conn: sqlite3.Connection) -> dict[str, list[Col]]:
     out: dict[str, list[Col]] = {}
     desc = readme_columns(conn)
     for t, n, o, k, nd, top in conn.execute(
-        "SELECT table_name, column_name, original_name, kind, n_distinct, top_values FROM _meta_columns"
+        "SELECT table_name, column_name, original_name, kind, n_distinct, "
+        "COALESCE(top_values, '') || ' ' || COALESCE(max_value, '') FROM _meta_columns"
     ):
         if not t.startswith(("_", "std_")):
             out.setdefault(t, []).append(Col(t, n, o, k, nd, top, desc.get((t, _key(o))) or desc.get((t, _key(n)))))
@@ -479,8 +486,8 @@ def _category_from_catalog(conn, cols, line_t: str, lines: pd.DataFrame):
     for t, cs in cols.items():
         if t == line_t:
             continue
-        cat = _first(cs, lambda c: c.kind == "text" and c.role == "category") or \
-            _first(cs, lambda c: c.kind == "text" and c.role in (None, "other") and c.has("nhomhang", "loaihang", "danhmuc", "phanloai", "nhom")
+        cat = _most(cs, lambda c: c.kind == "text" and c.role == "category") or \
+            _most(cs, lambda c: c.kind == "text" and c.role in (None, "other") and c.has("nhomhang", "loaihang", "danhmuc", "phanloai", "nhom")
                    and not c.has("khach")) or \
             _first(cs, lambda c: c.kind == "text" and c.role in (None, "other") and bool(c.keys & {"loai"}))  # "Loại": máy mới/cũ/phụ kiện
         if not cat:
@@ -611,7 +618,7 @@ _PRODUCT_ATTRS = {
     "brand": ("brand", ("thuonghieu", "nhanhieu", "hangsx")),
     "size": ("size", ("sosize", "size")),
     "active_ingredient": ("active_ingredient", ("hoatchat", "thanhphan")),
-    "is_prescription": ("prescription", ("kedon", "theodon")),
+    "is_prescription": ("prescription", ("kedon", "bantheodon", "theodonbacsi", "theodonbs")),  # không "theodon": 'giá bán theo đơn vị' 
     "cost_price": ("cost", ("giavon",)),
     "base_unit": ("base_unit", ("dvcoban", "donvicoban", "dvgoc", "donvigoc", "donvicoso")),
 }
@@ -630,8 +637,9 @@ def _build_products(conn, cols, line_t: str, lines: pd.DataFrame) -> pd.DataFram
             continue
         found = {}
         for attr, (role, hints) in _PRODUCT_ATTRS.items():
-            c = _first(cs, lambda c: c.role == role) or _first(cs, lambda c: c.role in (None, "other") and c.has(*hints)
-                                                                and not c.has("khach", "kh"))
+            c = _most(cs, lambda c: c.role == role) or _most(cs, lambda c: c.role in (None, "other") and c.has(*hints)
+                                                                and not c.has("khach", "kh")
+                                                                and not (attr == "is_prescription" and c.has("gia", "donvi")))
             if c:
                 found[attr] = c
         if not found:
@@ -779,8 +787,8 @@ def build_std(conn: sqlite3.Connection) -> dict:
         lines.loc[adj, "line_kind"] = "adjustment"
         lines["adjust_amount"] = lines["line_revenue"].where(adj)
         lines.loc[adj, "line_revenue"] = 0
-        cat = _first(cs, lambda c: c.kind == "text" and c.role == "category") or \
-            _first(cs, lambda c: c.kind == "text" and c.role in (None, "other") and c.has("nhomhang", "loaihang", "danhmuc", "phanloai"))
+        cat = _most(cs, lambda c: c.kind == "text" and c.role == "category") or \
+            _most(cs, lambda c: c.kind == "text" and c.role in (None, "other") and c.has("nhomhang", "loaihang", "danhmuc", "phanloai"))
         lines["category"] = df[cat.name] if cat else _category_from_catalog(conn, cols, line_t, lines)
         meta["line.category"] = cat.name if cat else "(danh mục)"
 
