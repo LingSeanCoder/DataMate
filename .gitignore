@@ -1,0 +1,15 @@
+# Bỏ qua file môi trường chứa thông tin bảo mật
+.env
+
+# Bỏ qua các file rác của Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Bỏ qua thư mục database tạm
+tmp_db/
+
+# Bỏ qua file cấu hình của IDE (nếu có)
+.vscode/
+.idea/
