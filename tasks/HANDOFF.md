@@ -35,6 +35,7 @@ Build đầy đủ 2 bộ + std_extra + đối soát ≈ 20–25 phút.
 | `std_extra.py` | `std_order_money`, `std_payments`, `std_purchases`, `std_installments(+_payments)`, `std_debt_book(+_payments)`, `std_tradeins`, `std_warranties`, `std_customers` (+`customer_key` vào std_orders), `std_stock`, `std_stock_ledger`, `std_lots`, `std_lot_sales`. Chạy SAU build (chưa gắn vào data_loader) |
 | `validate_std.py`, `inventory.py`, `schema_roles.py`, `count_intents.py` | kiểm tra/kiểm kê/phân loại câu hỏi |
 | `eval.py` | chấm offline theo rulebook §9 (đã test 3000/3000, 13/13 ca biên) |
+| `test_time_public.py` | **43/43** câu public thật (teencode: 11/25, T10/2025, th này, bữa ni, tới chừ, tháng liền trước, 30 ngày từ hôm đó...) |
 | `time_resolver.py` + `test_time_resolver.py` | giải thời gian §2, 37/37. Đã thêm tháng trơn `6/2025`, `6-2025`, `8/26` (MM/YY khi YY>12) → public **987/1000** câu có kỳ thời gian (trước 811) |
 | `formatter.py`, `entity.py`, `test_phase2.py` | **đã test 2026-11-10: formatter 14/14, entity 14/14** (entity test trên tmp_db train) |
 | `check_std.py` | đối soát std với gold train (doanh thu tháng) |
@@ -46,7 +47,7 @@ Build đầy đủ 2 bộ + std_extra + đối soát ≈ 20–25 phút.
 - Phase 2–7: chưa làm.
 
 ## Việc tiếp theo (theo plan v3)
-- **Phase 2** (đã làm sẵn một phần ngày 2026-11-10: test_phase2 pass 28/28; time_resolver phủ 987/1000 câu public). Còn: viết test 40 câu public có kỳ thời gian viết tay (≥38/40) — kiểm cả ĐÚNG khoảng ngày chứ không chỉ "có kỳ"; dạng chưa giải: "N ngày đầu"/"từ khi X lên giá" không ghi ngày (event_window), "đầu năm tới chừ", tháng viết chữ ("tháng ba"), "trong 3 tháng 12/2025, 1/2026, 2/2026"; "trong N ngày tới" (lô hết hạn) là kỳ tương lai [as_of, as_of+N]. Entity cần thêm category/brand/size/employee/supplier/channel/payment, dùng `std_products`, `std_customers`, `std_repairs.mechanic`. Formatter: tiền làm tròn về đồng (không round 2), percent không kèm "%".
+- **Phase 2**: ĐÃ XONG time_resolver (public 43/43, train 37/37, phủ 986/1000), formatter 14/14, entity 14/14 (trên train). CÒN LẠI để đóng Phase 2: (a) entity mở rộng cho public — category/brand/size (std_products), employee/thợ (std_orders.employee_id, std_repairs.mechanic), supplier (std_purchases), channel/payment (giá trị thật trong std_orders) + test 30 câu public ≥25 đúng; (b) dạng thời gian còn thiếu: tháng viết chữ ("tháng ba"), "trong N ngày tới" = [as_of, as_of+N], "từ khi X lên giá, N ngày đầu" không ghi ngày (event_window, metric tìm ngày ở bảng giá). Sau đó GATE 2.
 - Phase 3: metrics.py 18 hàm + `cancel_rate` + `repair_*` trên std_*; cross-val train (eval.py), tách theo biz.
 - Phase 4: router LLM (JSON intent+slots) + tích hợp `agent.ask()`; fallback text-to-SQL chỉ dùng std_*; đổi rulebook public; `std_extra` gắn vào build.
 - Phase 5 unanswerable; Phase 6 validation/benchmark Colab; Phase 7 Docker.
