@@ -360,7 +360,7 @@ def _read_csv_raw(path: Path) -> pd.DataFrame:
                 delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
             except csv.Error:
                 delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
-            return pd.read_csv(
+            raw = pd.read_csv(
                 path,
                 sep=delimiter,
                 header=None,
@@ -371,6 +371,9 @@ def _read_csv_raw(path: Path) -> pd.DataFrame:
                 engine="python",
                 on_bad_lines="skip",
             )
+            # Ô trống của CSV đọc ra "" chứ không phải NaN như Excel: đưa về NaN để dò dòng tổng/dòng thưa
+            # và ffill ô gộp (§3.1) chạy giống file Excel. Giữ keep_default_na=False để chữ "NA" không bị mất.
+            return raw.mask(raw.apply(lambda col: col.str.strip().eq("")))
         except (UnicodeDecodeError, pd.errors.ParserError) as exc:
             last_err = exc
             continue
@@ -652,6 +655,12 @@ def _drop_junk_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
             lambda col: col.str.strip().str.match(TOTAL_LABEL_PATTERN)
         )
         junk |= sparse & label_hit.any(axis=1)
+
+    # Dòng tổng theo ngày/tháng chen giữa bảng (VD mã đơn "tổng 01/05"): ô ở cột MÃ ĐƠN/PHIẾU là nhãn tổng
+    # thì là dòng tổng dù nhiều ô có số. Mã đơn thật không bao giờ là "tổng ...".
+    for col in df.columns:
+        if _name_has(_norm(col), ID_HINTS):
+            junk |= df[col].astype(str).str.strip().str.match(TOTAL_LABEL_PATTERN) & not_blank[col]
 
     out = df[~junk]
     return out, before - len(out)
