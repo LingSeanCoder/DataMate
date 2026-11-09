@@ -244,8 +244,53 @@ def _conversions(conn, cols) -> dict[tuple[str, str], float]:
     return conv
 
 
+def _fill_quy_doi(conn, cols) -> int:
+    """_quy_doi chỉ có dữ liệu từ README; nạp thêm bảng quy đổi gốc (VD DanhSachDonViTinh) để agent dùng được."""
+    try:
+        if conn.execute("SELECT COUNT(*) FROM _quy_doi").fetchone()[0]:
+            return 0
+    except sqlite3.Error:
+        return 0
+    rows = []
+    for t, cs in cols.items():
+        factor = _first(cs, lambda c: c.kind == "number" and (c.has("quydoi", "heso", "tile") or c.keys & {"bang"}))
+        unit = _first(cs, lambda c: c.kind == "text" and c.has("donvi", "dvt", "dvi", "unit", "dvlon")
+                      and not c.has("coban", "goc", "nho"))
+        base = _first(cs, lambda c: c.kind == "text" and c.has("coban", "dvgoc", "dvnho", "donvigoc"))
+        prod = _first(cs, _is_product_name) or _first(cs, _is_product_code)
+        if not (factor and unit and prod) or factor.has("soluong"):
+            continue
+        for r in _read(conn, t).to_dict("records"):
+            if r.get(factor.name) is not None and r.get(prod.name) is not None:
+                rows.append((r[prod.name], r.get(unit.name), float(r[factor.name]), r.get(base.name) if base else None))
+    conn.executemany("INSERT INTO _quy_doi VALUES (?, ?, ?, ?)", rows)
+    return len(rows)
+
+
+def _sanity(conn) -> list[str]:
+    """Tự kiểm tra khi không có gold (tập private): lỗi dữ liệu hay gặp thì ghi cảnh báo."""
+    warn = []
+    n, no_date, zero = conn.execute(
+        "SELECT COUNT(*), SUM(order_date IS NULL OR order_date = ''), SUM(is_valid = 1 AND revenue <= 0) FROM std_orders"
+    ).fetchone()
+    if n and no_date / n > 0.01:
+        warn.append(f"{no_date}/{n} đơn thiếu ngày")
+    if n and zero / n > 0.01:
+        warn.append(f"{zero}/{n} đơn hợp lệ có revenue <= 0")
+    try:
+        orphan, nl = conn.execute(
+            "SELECT SUM(o.order_id IS NULL), COUNT(*) FROM std_lines l LEFT JOIN std_orders o USING(order_id)"
+        ).fetchone()
+        if nl and orphan / nl > 0.01:
+            warn.append(f"{orphan}/{nl} dòng hàng không khớp đơn nào")
+    except sqlite3.Error:
+        pass
+    return warn
+
+
 def build_std(conn: sqlite3.Connection) -> dict:
     cols = _load_cols(conn)
+    n_conv = _fill_quy_doi(conn, cols)
     line_t = _pick_line_table(cols)
     head_t, head_oid, line_oid = _pick_header(conn, cols, line_t)
     meta: dict[str, str] = {"line_table": line_t or "", "header_table": head_t or ""}
@@ -374,6 +419,10 @@ def build_std(conn: sqlite3.Connection) -> dict:
         lines[line_cols].to_sql("std_lines", conn, index=False)
         conn.execute("CREATE INDEX ix_std_lines_order ON std_lines(order_id)")
     conn.execute("CREATE INDEX ix_std_orders_date ON std_orders(order_date)")
+    meta["quy_doi.loaded_from_tables"] = str(n_conv)
+    for i, w in enumerate(_sanity(conn)):
+        meta[f"warning.{i}"] = w
+        print(f"  [std_layer] CẢNH BÁO: {w}")
     pd.DataFrame(sorted(meta.items()), columns=["role", "source"]).to_sql("_meta_std", conn, index=False)
     conn.commit()
     return meta
