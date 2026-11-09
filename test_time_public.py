@@ -63,6 +63,19 @@ CASES = [
     ("q_d9f743469198", "2026-07-08", "Sua dac Ong Tho 380g len 26k tu 13/11/2025, so hop ban 30 ngay tu hom do so voi 30 ngay truoc tang hay giam bn %?",
      [("2025-11-13", "2025-12-12"), ("2025-10-14", "2025-11-12")]),
     ("q_4b3bc2d8b207", "2025-12-13", "Den het ngay 13/12/2025 tiem con bao nhieu khach no chua tra xong?", [(N, "2025-12-13")]),
+    # dạng bổ sung 2026-11-10
+    ("q_ef01edd61255", "2026-08-21", "Tháng ba quán có tất cả bao nhiêu đơn bị huỷ thế?", [M(2026, 3, 31)]),
+    ("q_0ca19cd317cb", "2026-08-08", "Kể giúp các sp còn lô tồn hết hạn trong 90 ngày tới.", [("2026-08-08", "2026-11-06")]),  # §: D..D+N
+    ("q_50152c2cebd6", "2026-05-03", "Đầu năm tới chừ quán được tổng cộng mấy đơn rồi?", [("2026-01-01", "2026-05-03")]),
+    ("q_dd2362109dd4", "2026-08-21", "Từ khi Bạc xỉu (M) lên 35.000 đồng/ly, 14 ngày đầu bán nhiều hay ít ly hơn 14 ngày liền trước mấy % z?",
+     [(N, N), (N, N)]),  # event_window: metric tự tìm ngày tăng giá
+    ("q_682e548226be", "2026-08-08", "Doanh thu 3 thang lien nhau tinh toi 3-2026, tung thang bao nhieu, xep tu thang cu toi thang gan nhat?",
+     [M(2026, 1, 31), M(2026, 2, 28), M(2026, 3, 31)]),
+    ("q_f09bd63b0751", "2026-07-08", "Doanh thu tu 12/25 den 2/26 co thang sau luon cao hon thang truoc khong?",
+     [M(2025, 12, 31), M(2026, 1, 31), M(2026, 2, 28)]),
+    ("q_f4a5eee7f524", "2026-05-10", "Từ th 1/25 tới th 3/25, dthu tháng sau đều cao hơn tháng trước hả?",
+     [M(2025, 1, 31), M(2025, 2, 28), M(2025, 3, 31)]),
+    ("q_2ac539902fe6", "2026-05-24", "Thang 2/26 so voi cung thang nam truoc, doanh thu thay doi bao nhieu %?", [M(2026, 2, 28), M(2025, 2, 28)]),
 ]
 
 

@@ -32,6 +32,11 @@ def _norm(s) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s).strip()
 
 
+def _norm_d(s) -> str:
+    """Như _norm nhưng giữ dấu: 'trà' ≠ 'trả', 'gỏi' ≠ 'gọi', 'lẻ' ≠ 'lệ'."""
+    return re.sub(r"[\W_]+", " ", str(s or "").lower()).strip()
+
+
 def _tokens(s) -> list[str]:
     return _norm(s).split()
 
@@ -66,6 +71,7 @@ def _catalog(db_path: str) -> dict:
             "payment": distinct("SELECT DISTINCT pay_method FROM std_orders"),
             "customer_group": distinct("SELECT DISTINCT customer_group FROM std_customers"),
         }
+        aliases = {a: _code_names(conn, attrs[a]) for a in ("employee", "supplier")}
     finally:
         conn.close()
     df = Counter(tok for name, _ in prods for tok in set(_tokens(name)))
@@ -76,7 +82,51 @@ def _catalog(db_path: str) -> dict:
         "customers": custs,
         "ingredients": sorted(set(ingredients), key=lambda s: -len(s)),
         "attrs": {k: sorted(set(v), key=lambda s: -len(s)) for k, v in attrs.items()},
+        "aliases": aliases,
     }
+
+
+# Cách gọi trong câu hỏi -> nhóm giá trị (khớp với giá trị thật đã bỏ dấu của kênh/thanh toán).
+SYNONYMS = {
+    "channel": [
+        ("tai quay", "tai tiem", "tai cua hang", "truc tiep", "store", "offline"),
+        ("qua dien thoai", "dien thoai", "phone", "goi dien"),
+        ("zalo oa", "zalo"),
+        ("san thuong mai dien tu", "san tmdt", "tmdt"),
+    ],
+    "payment": [
+        ("tien mat", "cash"),
+        ("chuyen khoan", "transfer"),
+        ("vi dien tu", "ewallet", "momo"),
+        ("thu ho cod", "thu ho", "cod", "xi o di"),
+        ("ghi no", "debt"),
+    ],
+}
+
+
+def _code_names(conn, codes: list[str]) -> dict[str, str]:
+    """Bảng danh mục (nhân viên, NCC...) có cột mã trùng mã trong std_* -> {tên: mã} từ cột tên cùng dòng."""
+    codes = set(codes)
+    if not codes or not all(re.fullmatch(r"[A-Za-z]+\d+", c) for c in codes):
+        return {}
+    out = {}
+    for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'std%' AND name NOT LIKE '\\_%' ESCAPE '\\'"):
+        try:
+            if conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] > 2000:
+                continue  # chỉ bảng danh mục nhỏ
+            cur = conn.execute(f'SELECT * FROM "{t}"')
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+        except sqlite3.Error:
+            continue
+        for i in range(len(cols)):
+            if sum(str(r[i]) in codes for r in rows) * 2 < len(rows) or not rows:
+                continue
+            for j in range(len(cols)):
+                vals = [r[j] for r in rows]
+                if j != i and all(isinstance(v, str) and " " in v.strip() and not re.search(r"\d", v) for v in vals):
+                    out.update({v.strip(): str(r[i]) for v, r in zip(vals, rows)})
+    return out
 
 
 def _has(conn, table: str) -> bool:
@@ -142,28 +192,48 @@ def extract_entities(question: str, db_path: str) -> dict:
     k = re.search(r"\btop ?(\d+)\b|\b(\d+) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|ngay|hang|loai)\b", qn)
     unit = re.search(r"\b(?:bao nhieu|may|so|total may|tong so) (" + "|".join(UNITS) + r")\b", qn)
     size = re.search(r"\bsize (m|l)\b", _norm_keep_paren(question))
+    # câu có dấu thì khớp giữ dấu, câu gõ không dấu thì khớp bỏ dấu
+    nm = _norm_d if strip_diacritics(question) != question else _norm
+    q_m = " " + nm(question) + " "
+    in_product = " ".join(nm(p["name"]) for p in products[:1])
     found = {}
     for attr, values in cat["attrs"].items():
-        # khớp nguyên cụm đã bỏ dấu; tên người (nhân viên/thợ) khớp thêm theo tên gọi (từ cuối) nếu duy nhất
-        hit = next((v for v in values if len(_norm(v)) >= 2 and f" {_norm(v)} " in qn), None)
-        if hit is None and attr == "employee":
+        # (vị trí trong câu, giá trị thật): khớp nguyên cụm đã bỏ dấu, tên trong danh mục -> mã, từ đồng nghĩa
+        hits = [(qn.find(f" {_norm(v)} "), v) for v in values if len(nm(v)) >= 2 and f" {nm(v)} " in q_m]
+        hits += [(qn.find(f" {_norm(n)} "), c) for n, c in cat["aliases"].get(attr, {}).items() if f" {nm(n)} " in q_m]
+        for group in SYNONYMS.get(attr, []):
+            pos = min((qn.find(f" {p} ") for p in group if f" {p} " in qn), default=-1)
+            if pos >= 0:
+                hits += [(pos, v) for v in values if _norm(v) in group]
+        if not hits and attr == "employee":
             given = {}
             for v in values:
                 toks = _tokens(v)
                 if toks:
                     given.setdefault(toks[-1], []).append(v)
-            hit = next((vs[0] for g, vs in given.items() if len(vs) == 1 and len(g) >= 2 and f" {g} " in qn
-                        and re.search(rf"\b(tho|nhan vien|nv|anh|chi|a|c|em|ban)\s+(\w+\s+){{0,2}}{g}\b", qn)), None)
-        found[attr] = hit
+            hits = [(qn.find(f" {g} "), vs[0]) for g, vs in given.items() if len(vs) == 1 and len(g) >= 2 and f" {g} " in qn
+                    and re.search(rf"\b(tho|nhan vien|nv|anh|chi|a|c|em|ban)\s+(\w+\s+){{0,2}}{g}\b", qn)]
+        # cụm dài đã khớp thì bỏ cụm ngắn nằm trong nó (vd 'Size XL' với 'Size L')
+        ordered = []
+        for _, v in sorted(hits, key=lambda h: (h[0], -len(h[1]))):
+            if f" {nm(v)} " in f" {in_product} ":
+                continue  # 'bia' trong 'Bia Heineken 330ml' là tên hàng, không phải lọc nhóm
+            if v not in ordered and not any(f" {_norm(v)} " in f" {_norm(o)} " for o in ordered):
+                ordered.append(v)
+        if attr == "payment":  # 'ghi nợ thêm' là công nợ; lọc thanh toán phải có 'trả/thanh toán/đơn ...' đứng trước
+            ordered = [v for v in ordered if any(re.search(rf"\b(tra|thanh toan|don|bang)\b( \w+){{0,3}} {re.escape(p)}\b", qn)
+                                                 for g in SYNONYMS["payment"] if _norm(v) in g for p in g) or
+                       re.search(rf"\b(tra|thanh toan|don|bang)\b( \w+){{0,3}} {re.escape(_norm(v))}\b", qn)]
+        found[attr] = ordered or None
     return {
-        **found,
+        **{k: v for k, v in found.items() if k != "size"},
         "product": products[0] if products else None,
         "products": products,
         "hoat_chat": ing,
         "customer": customer,
         "top_k": int(k.group(1) or k.group(2)) if k else None,
         "unit": unit.group(1) if unit else None,
-        "size": size.group(1).upper() if size else None,
+        "size": found["size"] or ([size.group(1).upper()] if size else None),
     }
 
 

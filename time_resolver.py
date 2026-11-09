@@ -27,11 +27,16 @@ _EXTRA = [
 ]
 
 
+_MONTH_WORDS = {"muoi mot": 11, "muoi hai": 12, "chap": 12, "gieng": 1, "mot": 1, "hai": 2, "ba": 3, "bay": 7,
+                "tam": 8, "chin": 9, "muoi": 10}
+
+
 def norm(text: str) -> str:
     s = _base_norm(text)
     for p, r in _EXTRA:
         s = re.sub(p, r, s)
-    return s
+    # "tháng ba" -> "thang 3"
+    return re.sub(r"\bthang (" + "|".join(_MONTH_WORDS) + r")\b(?! \d)", lambda m: f"thang {_MONTH_WORDS[m.group(1)]}", s)
 
 
 # ----------------------------- lịch -----------------------------------------
@@ -130,7 +135,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
                     used[i] = True
 
     # 2) N tháng liền nhau kết thúc ở tháng M/Y  |  N tháng liên tiếp từ tháng A/Y đến tháng B/Y -> từng tháng.
-    for m in re.finditer(r"(\d+) thang (?:lien nhau|lien tiep).{0,40}?(?:ket thuc o |den )thang (\d{1,2})(?:/| nam )(\d{4})", q):
+    for m in re.finditer(r"(\d+) thang (?:lien nhau|lien tiep|lien).{0,40}?(?:ket thuc o |den |toi |tinh toi |tinh den )(?:thang )?(\d{1,2})(?:/| nam |-)(\d{4})", q):
         if not take(m):
             continue
         n, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -145,8 +150,21 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
             for i in range(mm.start(), mm.end()):
                 used[i] = True
 
+    # 2b) Từ tháng A/Y đến tháng B/Y (kể cả "từ 12/25 đến 2/26") -> từng tháng; YY 2 chữ số phải > 12 để không lẫn dd/mm.
+    my = r"(?:thang )?(\d{1,2})(?:/|-| nam )(\d{4}|1[3-9]|[2-9]\d)(?![\d/])"
+    for m in re.finditer(r"tu " + my + r" (?:den|toi)(?: het)? " + my, q):
+        y1, m1, y2, m2 = (int(m.group(i)) for i in (2, 1, 4, 3))
+        y1, y2 = (y + 2000 if y < 100 else y for y in (y1, y2))
+        if not (1 <= m1 <= 12 and 1 <= m2 <= 12) or (y1, m1) > (y2, m2) or not take(m):
+            continue
+        while (y1, m1) <= (y2, m2):
+            add(m.start(), _period(date(y1, m1, 1), _month_end(y1, m1), "month", f"tháng {m1}/{y1}"))
+            y1, m1 = (y1 + 1, 1) if m1 == 12 else (y1, m1 + 1)
+    for m in re.finditer(r"thang sau .{0,40}?thang truoc", q):  # "tháng sau có luôn hơn tháng trước": so sánh liền kề, không phải kỳ
+        take(m)
+
     # 3) N ngày kể từ ngày D (+ N ngày ngay trước) — hiệu ứng tăng giá (§5).
-    for m in re.finditer(r"(\d+) ngay (?:ke tu|tu hom do|tu ngay do|ke tu hom do)(?: ngay)?(?: " + _DATE + r")?", q):
+    for m in re.finditer(r"(\d+) ngay (?:ke tu|tu hom do|tu ngay do|ke tu hom do|dau)(?: ngay)?(?: " + _DATE + r")?", q):
         if not take(m):
             continue
         n = int(m.group(1))
@@ -188,12 +206,12 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
             add(m.start(), _period(date(py, pm, 1), end, "same_period_prev_month", "cùng kỳ tháng trước"))
         else:  # "so với tháng trước (đó)": neo theo kỳ được hỏi nếu câu có kỳ cụ thể (xử lý cuối hàm)
             add(m.start(), _period(date(py, pm, 1), _month_end(py, pm), "month", "tháng trước", rel="prev_month"))
-    for m in re.finditer(r"cung ky nam (?:truoc|ngoai|roi)|nam (?:truoc|ngoai) cung ky", q):
+    for m in re.finditer(r"(?:cung ky|cung thang) nam (?:truoc|ngoai|roi)|nam (?:truoc|ngoai) cung ky", q):
         if take(m):
             add(m.start(), _period(None, None, "same_period_prev_year", "cùng kỳ năm trước", rel="prev_year"))
 
     # 5b) Từ đầu năm (đến hết hôm nay) / năm nay — trước bước "đến hết hôm nay".
-    for m in re.finditer(r"tu dau nam(?: nay)?(?: (?:den|toi)(?: het)?(?: nay| hom nay)?)?|nam nay", q):
+    for m in re.finditer(r"tu dau nam(?: nay)?(?: (?:den|toi)(?: het)?(?: nay| hom nay)?)?|dau nam(?: nay)? (?:den|toi)(?: het)?(?: nay| hom nay)?|nam nay", q):
         if take(m):
             add(m.start(), _period(date(today.year, 1, 1), today, "year_to_date", "từ đầu năm"))
 
@@ -212,6 +230,12 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
         if take(m):
             n = int(m.group(1))
             add(m.start(), _period(today - timedelta(days=n - 1), today, "range", f"{n} ngày gần nhất"))
+
+    # 7b) Trong N ngày tới (lô hết hạn): từ hôm nay D đến hết D + N.
+    for m in re.finditer(r"(\d+) ngay (?:toi|sap toi|nua)\b", q):
+        if take(m):
+            n = int(m.group(1))
+            add(m.start(), _period(today, today + timedelta(days=n), "next_days", f"{n} ngày tới"))
 
     # 8) Đến hết ngày X / tính đến hôm nay: luỹ kế từ đầu dữ liệu (§2).
     for m in re.finditer(r"(?:den het|tinh den(?: het)?|cho den(?: het)?|toi(?: het)?)(?: ngay)? (?:(hom nay|hom qua)|" + _DATE + ")", q):
