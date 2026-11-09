@@ -50,6 +50,22 @@ def _catalog(db_path: str) -> dict:
         for t, c in conn.execute("SELECT table_name, column_name FROM _meta_columns"):
             if "hoatchat" in re.sub(r"[^a-z]", "", strip_diacritics(c).lower()):
                 ingredients += [r[0] for r in conn.execute(f'SELECT DISTINCT "{c}" FROM "{t}" WHERE "{c}" IS NOT NULL')]
+        # Giá trị thật của các thuộc tính để khớp câu hỏi (nhóm, hãng, size, nhân viên/thợ, NCC, kênh, thanh toán).
+        def distinct(sql: str) -> list[str]:
+            try:
+                return [str(r[0]) for r in conn.execute(sql) if r[0] not in (None, "")]
+            except sqlite3.Error:
+                return []
+        attrs = {
+            "category": distinct("SELECT DISTINCT category FROM std_products") + distinct("SELECT DISTINCT category FROM std_lines"),
+            "brand": distinct("SELECT DISTINCT brand FROM std_products"),
+            "size": distinct("SELECT DISTINCT size FROM std_products"),
+            "employee": distinct("SELECT DISTINCT employee_id FROM std_orders") + distinct("SELECT DISTINCT mechanic FROM std_repairs"),
+            "supplier": distinct("SELECT DISTINCT supplier FROM std_purchases"),
+            "channel": distinct("SELECT DISTINCT channel FROM std_orders"),
+            "payment": distinct("SELECT DISTINCT pay_method FROM std_orders"),
+            "customer_group": distinct("SELECT DISTINCT customer_group FROM std_customers"),
+        }
     finally:
         conn.close()
     df = Counter(tok for name, _ in prods for tok in set(_tokens(name)))
@@ -59,6 +75,7 @@ def _catalog(db_path: str) -> dict:
         "idf": {tok: math.log((n + 1) / (c + 0.5)) for tok, c in df.items()},
         "customers": custs,
         "ingredients": sorted(set(ingredients), key=lambda s: -len(s)),
+        "attrs": {k: sorted(set(v), key=lambda s: -len(s)) for k, v in attrs.items()},
     }
 
 
@@ -125,7 +142,21 @@ def extract_entities(question: str, db_path: str) -> dict:
     k = re.search(r"\btop ?(\d+)\b|\b(\d+) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|ngay|hang|loai)\b", qn)
     unit = re.search(r"\b(?:bao nhieu|may|so|total may|tong so) (" + "|".join(UNITS) + r")\b", qn)
     size = re.search(r"\bsize (m|l)\b", _norm_keep_paren(question))
+    found = {}
+    for attr, values in cat["attrs"].items():
+        # khớp nguyên cụm đã bỏ dấu; tên người (nhân viên/thợ) khớp thêm theo tên gọi (từ cuối) nếu duy nhất
+        hit = next((v for v in values if len(_norm(v)) >= 2 and f" {_norm(v)} " in qn), None)
+        if hit is None and attr == "employee":
+            given = {}
+            for v in values:
+                toks = _tokens(v)
+                if toks:
+                    given.setdefault(toks[-1], []).append(v)
+            hit = next((vs[0] for g, vs in given.items() if len(vs) == 1 and len(g) >= 2 and f" {g} " in qn
+                        and re.search(rf"\b(tho|nhan vien|nv|anh|chi|a|c|em|ban)\s+(\w+\s+){{0,2}}{g}\b", qn)), None)
+        found[attr] = hit
     return {
+        **found,
         "product": products[0] if products else None,
         "products": products,
         "hoat_chat": ing,
