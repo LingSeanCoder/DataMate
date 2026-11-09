@@ -82,7 +82,7 @@ ID_HINTS = (
     "ma don", "mã đơn", "ma hoa don", "mã hóa đơn", "ma chung tu", "mã chứng từ",
     "so phieu", "số phiếu", "ma phieu", "mã phiếu", "ma bill", "bill",
     "ma hd", "mã hđ", "order", "invoice", "ma dh", "mã đh", "so ct", "số ct",
-    "ma gd", "mã gd", "ma nhap", "mã nhập",
+    "ma gd", "mã gd", "ma nhap", "mã nhập", "ma giao dich", "mã giao dịch",
 )
 
 CURRENCY_CHARS = "đ₫$€£¥ "
@@ -196,6 +196,14 @@ def parse_number(value: Any) -> float | None:
     raw = "".join(ch for ch in raw if ch not in CURRENCY_CHARS).strip()
     raw = raw.replace("%", "").strip()
 
+    # "1tr440" = 1.440.000, "1tr5" = 1.500.000, "1k5" = 1.500: phần sau đơn vị là các chữ số kế tiếp.
+    m = re.fullmatch(r"(\d+)\s*(tỷ|ty|tr|triệu|trieu|k)\s*(\d+)", raw)
+    if m:
+        mult = {"tỷ": 9, "ty": 9, "tr": 6, "triệu": 6, "trieu": 6, "k": 3}[m.group(2)]
+        if len(m.group(3)) <= mult:
+            result = int(m.group(1)) * 10 ** mult + int(m.group(3).ljust(mult, "0"))
+            return float(-result if negative else result)
+
     multiplier = 1.0
     for suffix, mult in (("tỷ", 1e9), ("ty", 1e9), ("triệu", 1e6),
                          ("trieu", 1e6), ("tr", 1e6), ("nghìn", 1e3),
@@ -204,6 +212,10 @@ def parse_number(value: Any) -> float | None:
             tail = raw[: -len(suffix)].strip()
             if re.fullmatch(r"[\d.,]+", tail):
                 raw, multiplier = tail, mult
+                # "3,185tr" = 3.185.000: có đơn vị thì 1 dấu phân cách duy nhất là dấu thập phân.
+                if raw.count(",") + raw.count(".") == 1:
+                    result = float(raw.replace(",", ".")) * mult
+                    return -result if negative else result
                 break
 
     # Tách số đầu chuỗi kiểu "1 kg", "2 chai" (chỉ khi phần còn lại không phải số).
@@ -693,6 +705,29 @@ def _detect_group_key(df: pd.DataFrame) -> str | None:
     return best if best_score > 0.05 else None
 
 
+def _ffill_merged_key(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Ô gộp (§3.1): dòng sau của một đơn để trống cả mã đơn lẫn các cột cấp đơn.
+
+    Chỉ ffill mã đơn khi các dòng trống mã cũng trống ở MỌI cột cấp đơn khác (cột luôn có
+    giá trị ở dòng có mã). Nếu dòng trống mã vẫn có ngày/khách riêng thì đó là đơn không mã
+    (khách lẻ...), không được gộp vào đơn phía trên.
+    """
+    for col in df.columns:
+        if not _name_has(_norm(col), ID_HINTS):
+            continue
+        blank = df[col].isna()
+        if not blank.any() or blank.all() or blank.iloc[0]:
+            continue
+        order_cols = [c for c in df.columns if c != col and df.loc[~blank, c].notna().mean() >= 0.99]
+        co_blank = [c for c in order_cols if df.loc[blank, c].isna().mean() >= 0.99]
+        if not any(_name_has(_norm(c), DATE_HINTS) for c in co_blank):
+            continue
+        out = df.copy()
+        out[col] = out[col].ffill()
+        return out, int(blank.sum())
+    return df, 0
+
+
 def _fill_blanks_within_group(df: pd.DataFrame, key: str) -> tuple[pd.DataFrame, int]:
     """Ô trống ở dòng sau của cùng một đơn = giá trị dòng đầu (Rulebook mục 8).
 
@@ -754,22 +789,22 @@ def clean_table(
     df, stats["removed_header_echo"] = _drop_header_echo(df, columns, originals)
 
     # 3) Điền ô trống theo nhóm đơn (chỉ khi chắc chắn).
+    df, stats["filled_merged_key"] = _ffill_merged_key(df)
     key = _detect_group_key(df)
     stats["group_key"] = key
     if key:
         df, stats["filled_blanks"] = _fill_blanks_within_group(df, key)
 
-    # 4) Loại trùng (Bắt buộc chạy + Chuẩn hóa text trước khi xóa)
-    before = len(df)
-    for col in df.columns:
-        if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
-            df[col] = df[col].astype(str).str.strip()
-            df[col] = df[col].replace({'nan': '', 'None': '', 'NaT': ''})
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            df[col] = df[col].fillna(0)
-
-    df = df.drop_duplicates().reset_index(drop=True)
-    stats["removed_duplicate"] = before - len(df)
+    # 4) Loại trùng CHỈ trong cùng một đơn (§3.3): bảng không có mã đơn thì
+    #    hai dòng giống hệt nhau là hai lần bán thật, phải giữ cả hai.
+    if key:
+        before = len(df)
+        for col in df.columns:
+            if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].astype(str).str.strip()
+                df[col] = df[col].replace({'nan': '', 'None': '', 'NaT': ''})
+        df = df.drop_duplicates().reset_index(drop=True)
+        stats["removed_duplicate"] = before - len(df)
 
     df = df.reset_index(drop=True)
     stats["rows_out"] = len(df)
@@ -805,6 +840,24 @@ class _SheetSlice:
 
 
 GENERIC_SHEET = re.compile(r"^(sheet|trang|data|table|bang|sheet\d+)\s*\d*$", re.IGNORECASE)
+
+
+_YEARLESS_DATE = re.compile(r"^\s*(\d{1,2})\s*(?:[/\-.]|thg|tháng)\s*(\d{1,2})\s*$", re.IGNORECASE)
+
+
+def _add_sheet_year(body: pd.DataFrame, original: list[str], sheet_name: str) -> None:
+    """§3.4: ngày không ghi năm (VD "1/1", "1 thg 1") lấy theo năm của tên sheet."""
+    m = re.search(r"(?<!\d)(20\d{2})(?!\d)", str(sheet_name or ""))
+    if not m:
+        return
+    year = m.group(1)
+    for col, orig in zip(body.columns, original):
+        if not (_name_has(_norm(orig or col), DATE_HINTS) or _name_has(_norm(col), DATE_HINTS)):
+            continue
+        body[col] = [
+            f"{mm.group(1)}/{mm.group(2)}/{year}" if isinstance(v, str) and (mm := _YEARLESS_DATE.match(v)) else v
+            for v in body[col].tolist()
+        ]
 
 
 def _collect_slices(biz_dir: Path, report: dict) -> list[_SheetSlice]:
@@ -865,6 +918,7 @@ def _collect_slices(biz_dir: Path, report: dict) -> list[_SheetSlice]:
             if body.empty:
                 continue
             body.columns = columns
+            _add_sheet_year(body, original, sheet_name)
             parsed.append((sheet_name, body, columns, header_row, original))
 
         if not parsed:
@@ -1154,12 +1208,6 @@ def build_database(
                 stats["removed_duplicate"] += before - len(frame)
             stats["rows_out"] = len(frame)
 
-            # ÉP XÓA TRÙNG LẦN CUỐI TRƯỚC KHI GHI VÀO SQLITE
-            before = len(frame)
-            frame = frame.drop_duplicates(subset=list(frame.columns), keep="first").reset_index(drop=True)
-            if before - len(frame) > 0:
-                print(f"  [Dọn dẹp] Đã xóa thêm {before - len(frame)} dòng trùng trước khi nạp SQLite.")
-
             col_defs = [(col, _SQL_TYPES[kinds[col]]) for col in columns]
             _create_table(conn, table, col_defs)
             _insert_rows(conn, table, columns, frame)
@@ -1237,6 +1285,11 @@ def build_database(
         conn.execute("INSERT INTO _meta_readme VALUES (?)", (readme_info["text"],))
 
         conn.commit()
+        try:
+            from std_layer import build_std  # import muộn: std_layer import data_loader
+            report["std"] = build_std(conn)
+        except Exception as exc:  # noqa: BLE001 - bảng gốc vẫn dùng được nếu std lỗi
+            report["warnings"].append(f"std_layer lỗi: {exc!r}")
         report["views"] = []
         report["readme"] = {
             "found": bool(readme_text),

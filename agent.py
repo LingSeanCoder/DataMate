@@ -66,7 +66,7 @@ from data_loader import parse_number, slug, sql_quote, strip_diacritics
 # Cấu hình
 # --------------------------------------------------------------------------
 
-DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+DEFAULT_MODEL = "Qwen2.5-Coder-14B-Instruct"
 MAX_ROWS = 5000
 QUERY_TIMEOUT_SEC = 25
 DEFAULT_PROMPT_BUDGET = 6300   # token input ước lượng (NIM rate limit cao hơn Groq)

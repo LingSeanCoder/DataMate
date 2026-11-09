@@ -13,3 +13,5 @@ tmp_db/
 # Bỏ qua file cấu hình của IDE (nếu có)
 .vscode/
 .idea/
+.venv/
+

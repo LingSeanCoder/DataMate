@@ -15,6 +15,18 @@ Hệ thống chỉ sử dụng **DUY NHẤT 1 model** tại thời điểm infer
 3. **Prompting:** Sinh System Prompt động kèm Few-shot mẫu dựa trên schema thực tế của từng biz.
 4. **Execution:** Gọi Local LLM Server (`llama-server`) qua API OpenAI-compatible để sinh SQL, chạy thử trên SQLite, tự động sửa lỗi (self-correction) và format JSON kết quả.
 
+### Bảng chuẩn `std_*` (tạo tự động cuối `build_database`, `std_layer.py`)
+Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe (datamate.md §3, §4.1). Ưu tiên query 2 bảng này thay vì bảng gốc.
+
+| Bảng | Cột | Ghi chú |
+|---|---|---|
+| `std_orders` (1 dòng/đơn) | `order_id, order_date` (YYYY-MM-DD), `order_time` (HH:MM:SS), `status_raw, status_norm, is_valid, customer_id, customer_name, pay_method, revenue, n_lines` | `status_norm` ∈ `hoàn thành`/`huỷ`/`trả hàng`/`đang giao`; đơn có bất kỳ dòng trả = `trả hàng`. `is_valid=1` = không huỷ, không trả (đang giao vẫn tính). `revenue` = tổng thành tiền dòng hàng (đã trừ giảm giá dòng, chưa trừ giảm cả đơn, không ship, không VAT, có phí phục vụ). `pay_method` là giá trị gốc, chưa chuẩn hoá. |
+| `std_lines` (1 dòng/dòng hàng) | `order_id, line_no, product_id, product_name, unit, qty, qty_base, line_revenue, line_cost, is_service_fee` | `qty_base` = số lượng quy về đơn vị cơ bản. `product_name` đã gom các cách viết hoa/thường/dấu. `is_service_fee=1` là "Phí phục vụ": tính vào doanh thu, không xếp hạng mặt hàng. `line_cost = qty × giá vốn ghi trên dòng` (NULL nếu shop không có). |
+| `_meta_std` | `role, source` | Cột gốc nào được dùng cho từng vai trò, để debug. |
+
+Ví dụ: doanh thu tháng 5/2025 = `SELECT SUM(revenue) FROM std_orders WHERE is_valid=1 AND order_date BETWEEN '2025-05-01' AND '2025-05-31'`.
+Kiểm tra với đáp án train (không cần LLM): `python check_std.py --answers answers.jsonl`.
+
 ## 🚀 Hướng dẫn chạy Docker
 Hệ thống đã được đóng gói hoàn chỉnh. Để chạy:
 
