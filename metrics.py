@@ -265,7 +265,13 @@ def top_customers(conn, start, end, as_of, k=1, by="revenue", **F) -> list[dict]
                   for key, n, cid, v in rows], k)
 
 
+def _need_customers(conn):
+    if not conn.execute("SELECT 1 FROM std_orders WHERE customer_key IS NOT NULL AND customer_key != '' LIMIT 1").fetchone():
+        raise NoData("shop không ghi khách")
+
+
 def customers_with_orders(conn, start, end, as_of, min_orders=1, strict=False, **F) -> int:
+    _need_customers(conn)
     w, args = _order_rows(conn, start, end, as_of, F)
     op = ">" if strict else ">="
     return conn.execute(f"SELECT COUNT(*) FROM (SELECT o.customer_key FROM std_orders o WHERE {w} AND o.customer_key IS NOT NULL "
@@ -340,8 +346,34 @@ def price_hike_change(conn, product: str, n: int, as_of, hike_date: str | None =
     return pct_change(after, before)
 
 
+def _price_history(conn, product: str) -> list[tuple[str, float]]:
+    """Bảng giá / lịch sử giá: [(ngày áp dụng, giá mới)] theo thời gian; khớp hàng theo tên hoặc mã."""
+    pid = conn.execute("SELECT product_id FROM std_products WHERE product_name = ?", (product,)).fetchone()
+    keys = {_ukey(product)} | ({_ukey(pid[0])} if pid and pid[0] else set())
+    for (t,) in conn.execute("SELECT DISTINCT table_name FROM _meta_columns WHERE replace(column_name, '_', '') LIKE '%ngayapdung%'"):
+        cols = [r[0] for r in conn.execute("SELECT column_name FROM _meta_columns WHERE table_name = ?", (t,))]
+        day = next(c for c in cols if "ngay" in c and "ap" in c)
+        price = next((c for c in cols if re.sub("_", "", c) in ("giamoi", "giabanle", "giaban", "gia")), None)
+        if not price:
+            continue
+        out = []
+        for c in cols:
+            if c in (day, price):
+                continue
+            rows = conn.execute(f'SELECT "{c}", "{day}", "{price}" FROM "{t}"').fetchall()
+            out = sorted((str(d)[:10], float(p)) for r, d, p in rows if _ukey(r) in keys and p is not None and d)
+            if out:
+                return out
+    return []
+
+
 def find_hike_date(conn, product: str, as_of, new_price: float | None = None) -> str:
-    """Ngày đầu tiên đơn giá (một đơn vị cơ bản, trước chiết khấu) cao hơn giá liền trước; có new_price thì lần đầu lên giá đó."""
+    """§5: lần tăng giá = ngày D giá mới cao hơn giá liền trước (theo bảng giá); cùng một giá nhiều lần thì lần đầu.
+    Không có bảng giá thì dò đơn giá trên dòng bán."""
+    hist = [(d, p) for d, p in _price_history(conn, product) if d <= as_of]
+    for (d0, p0), (d1, p1) in zip(hist, hist[1:]):
+        if p1 > p0 and (new_price is None or abs(p1 - new_price) < 1):
+            return d1
     rows = conn.execute("SELECT o.order_date, MAX(l.line_revenue / NULLIF(l.qty_base, 0)) FROM std_lines l JOIN std_orders o "
                         "USING(order_id) WHERE l.product_name = ? AND o.order_date <= ? GROUP BY 1 ORDER BY 1",
                         (product, as_of)).fetchall()
@@ -398,8 +430,18 @@ def purchase_avg_price(conn, product: str, start, end, as_of) -> float:
     return t / q
 
 
+_UF_CACHE: dict = {}
+
+
 def unit_factor(conn, product: str, unit: str) -> float | None:
     """Số đơn vị cơ bản trong 1 `unit` của mặt hàng (§10): bảng quy đổi, không có thì từ dòng bán; đơn vị cơ bản = 1."""
+    key = (conn.execute("PRAGMA database_list").fetchone()[2], product, unit)
+    if key not in _UF_CACHE:
+        _UF_CACHE[key] = _unit_factor(conn, product, unit)
+    return _UF_CACHE[key]
+
+
+def _unit_factor(conn, product: str, unit: str) -> float | None:
     if _ukey(unit) == _ukey(base_units(conn).get(product)):
         return 1.0
     try:
@@ -484,6 +526,19 @@ def _stock_from_flows(conn, product: str, day: str) -> float:
     return bought - sold
 
 
+def stock_out_count(conn, day: str, as_of) -> int:
+    """§5: số mặt hàng mua về để bán (có phiếu nhập hoặc có trong bảng tồn) mà tồn lúc hết ngày = 0."""
+    names = [r[0] for r in conn.execute("SELECT product_name FROM std_products")]
+    n = 0
+    for name in names:
+        try:
+            q = stock_at(conn, name, day, as_of)
+        except NoData:
+            continue
+        n += q is not None and abs(q) < 1e-9
+    return n
+
+
 def stock_value(conn, day: str, as_of) -> float:
     """§5: Σ tồn (>0) × giá vốn một đơn vị cơ bản trong danh mục."""
     total = 0.0
@@ -495,6 +550,47 @@ def stock_value(conn, day: str, as_of) -> float:
         if q and q > 0:
             total += q * cost
     return total
+
+
+def lots_in_stock(conn, day: str, as_of) -> list[dict]:
+    """Lô còn tồn lúc hết ngày `day` (đơn vị cơ bản): nhập − bán theo lô (đơn không huỷ, trừ phần trả lại)."""
+    _need(conn, "std_lots")
+    day = min(day, as_of)
+    names = dict(conn.execute("SELECT product_id, product_name FROM std_products WHERE product_id IS NOT NULL").fetchall())
+    sold = defaultdict(float)
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_lot_sales'").fetchone():
+        for lot, q in conn.execute("SELECT s.lot_id, SUM(s.qty - COALESCE(s.qty_returned, 0)) FROM std_lot_sales s JOIN std_orders o "
+                                   "USING(order_id) WHERE o.status_norm != 'huỷ' AND o.order_date <= ? GROUP BY 1", (day,)):
+            sold[lot] = q or 0
+    cost = {}
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_purchases'").fetchone():
+        for doc, pid, name, uc, u in conn.execute("SELECT DISTINCT purchase_id, product_id, product_name, unit_cost, unit FROM std_purchases"):
+            if uc:
+                cost[(doc, pid)] = uc / (unit_factor(conn, name, u) or 1) if u else uc
+    pdate = dict(conn.execute("SELECT purchase_id, MIN(purchase_date) FROM std_purchases GROUP BY 1").fetchall()) \
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_purchases'").fetchone() else {}
+    out = []
+    for lot, ref, exp, qin, uc, doc in conn.execute("SELECT lot_id, product_ref, expiry_date, qty_in, unit_cost, purchase_id FROM std_lots"):
+        if pdate.get(doc) and pdate[doc] > day:
+            continue  # lô nhập sau ngày hỏi
+        rest = (qin or 0) - sold[lot]
+        if rest > 0:
+            out.append({"lot": lot, "code": ref, "name": names.get(ref, ref), "expiry": exp, "rest": rest,
+                        "cost": uc if uc else cost.get((doc, ref))})
+    return out
+
+
+def nearest_expiry(conn, product: str, day: str, as_of) -> str:
+    """§6 nhà thuốc: lô còn tồn, chưa quá hạn tại hôm nay, hạn sớm nhất."""
+    lots = [l for l in lots_in_stock(conn, day, as_of) if l["name"] == product and l["expiry"] and l["expiry"] >= day]
+    if not lots:
+        raise NoData("không có lô còn tồn")
+    return min(l["expiry"] for l in lots)
+
+
+def expiring(conn, start: str, end: str, as_of) -> list[dict]:
+    """Lô còn tồn (tại `start` = hôm nay) có hạn dùng trong [start, end]."""
+    return [l for l in lots_in_stock(conn, start, as_of) if l["expiry"] and start <= l["expiry"] <= end]
 
 
 def _is_cod(m) -> bool:
@@ -574,3 +670,375 @@ def debt_flow(conn, start, end, as_of, customer_key=None) -> tuple[float, float]
             new += (due or 0) - sum(a for pd_, a in pays[oid] if pd_ <= d)
         repaid += sum(a for pd_, a in pays[oid] if pd_ > d and s <= pd_ <= e)
     return new, repaid
+
+
+# ----------------------------- sửa xe (rulebook public §Sửa xe) ---------------------------
+
+# việc chuẩn -> mẫu (trên từng phần ô "Làm gì" đã bỏ dấu). Thứ tự quan trọng: láp/hộp số trước nhớt máy, vá trước ruột.
+REPAIR_JOBS = [
+    ("nhot lap", r"\blap\b|hop so"),
+    ("va ruot", r"^va\b"),
+    ("thay ruot", r"\bruot\b"),
+    ("nhot may", r"nhot|castrol|motul|shell|^nhot hang"),
+    ("sua dien", r"sua dien|lam dien"),
+    ("bao duong", r"^bd(tq)?$|bao duong"),
+    ("kim phun", r"kim phun"),
+    ("rua xe", r"^rua( xe)?$"),
+    ("lam noi", r"\bnoi\b"),
+    ("bo thang truoc", r"(bo|ma phanh|bo thang) truoc"),
+    ("bo thang sau", r"(bo|ma phanh|bo thang) sau"),
+    ("loc gio", r"loc gio"),
+    ("sen", r"(chinh|can|tang) sen"),
+    ("bugi", r"bu ?gi"),
+    ("bong den", r"bong den|den pha"),
+    ("vo xe", r"\bvo\b"),
+    ("curoa", r"cu ?roa"),
+    ("nhong xich", r"nhong|\bnsd\b"),
+    ("nuoc mat", r"nuoc (lam )?mat"),
+    ("ac quy", r"ac quy|^binh|thay binh"),
+]
+
+
+def repair_jobs(jobs: str) -> set[str]:
+    out = set()
+    for part in re.split(r"\s*[+,;/&]\s*|\s+va\s+(?=\S)", _ukey(jobs)):
+        part = part.strip()
+        for name, pat in REPAIR_JOBS:
+            if re.search(pat, part):
+                out.add(name)
+                break
+    return out
+
+
+def _repairs(conn, start, end, as_of, mechanic=None) -> list[dict]:
+    _need(conn, "std_repairs")
+    s, e = start or "0000", min(end or as_of, as_of)
+    rows = conn.execute("SELECT ticket_id, repair_date, plate, model, jobs, mechanic, amount, is_warranty FROM std_repairs "
+                        "WHERE repair_date BETWEEN ? AND ?", (s, e)).fetchall()
+    mech = set(_list(mechanic) or [])
+    return [{"id": t, "date": d, "plate": p, "model": m, "jobs": j, "mechanic": me, "amount": a or 0, "warranty": bool(w)}
+            for t, d, p, m, j, me, a, w in rows if not mech or me in mech]
+
+
+def repair_count(conn, start, end, as_of, mechanic=None, job=None, paid_only=False) -> int:
+    """Số phiếu/lượt xe (kể cả bảo hành); job: lượt có việc đó (không tính phiếu bảo hành)."""
+    rs = _repairs(conn, start, end, as_of, mechanic)
+    if job:
+        return sum(1 for r in rs if not r["warranty"] and job in repair_jobs(r["jobs"]))
+    return sum(1 for r in rs if not (paid_only and r["warranty"]))
+
+
+def repair_revenue(conn, start, end, as_of, mechanic=None) -> float:
+    return sum(r["amount"] for r in _repairs(conn, start, end, as_of, mechanic))
+
+
+def repair_avg_ticket(conn, start, end, as_of, mechanic=None) -> float:
+    """Tiền trung bình một phiếu: chia số phiếu có thu tiền (không tính bảo hành)."""
+    rs = [r for r in _repairs(conn, start, end, as_of, mechanic) if not r["warranty"]]
+    if not rs:
+        raise NoData("không có phiếu")
+    return sum(r["amount"] for r in rs) / len(rs)
+
+
+def commission_rates(conn) -> dict[str, float]:
+    """Thợ -> % hoa hồng, từ bảng danh sách thợ (cột tên khớp tên thợ trong std_repairs, cột chứa 'hoa hồng')."""
+    mechs = {r[0] for r in conn.execute("SELECT DISTINCT mechanic FROM std_repairs WHERE mechanic IS NOT NULL")}
+    for (t,) in conn.execute("SELECT DISTINCT table_name FROM _meta_columns WHERE replace(column_name, '_', '') LIKE '%hoahong%'"):
+        pct = conn.execute("SELECT column_name FROM _meta_columns WHERE table_name = ? AND replace(column_name, '_', '') LIKE '%hoahong%'",
+                           (t,)).fetchone()[0]
+        for (c,) in conn.execute("SELECT column_name FROM _meta_columns WHERE table_name = ?", (t,)):
+            rows = conn.execute(f'SELECT "{c}", "{pct}" FROM "{t}"').fetchall()
+            if sum(str(n) in mechs for n, _ in rows) >= max(1, len(rows) // 2):
+                return {str(n): float(p) for n, p in rows if p is not None}
+    raise NoData("không có bảng hoa hồng")
+
+
+def mechanic_table(conn, start, end, as_of, by="commission") -> list[dict]:
+    """Xếp thợ theo hoa hồng (% × tổng tiền phiếu trong tháng) / tiền / số lượt / số ngày làm việc."""
+    rs = _repairs(conn, start, end, as_of)
+    agg = defaultdict(lambda: {"amount": 0.0, "count": 0, "days": set()})
+    for r in rs:
+        if r["mechanic"]:
+            a = agg[r["mechanic"]]
+            a["amount"] += r["amount"]
+            a["count"] += 1
+            a["days"].add(r["date"])
+    rates = commission_rates(conn) if by == "commission" else {}
+    items = []
+    for m, a in agg.items():
+        v = {"commission": a["amount"] * rates.get(m, 0) / 100, "amount": a["amount"], "count": a["count"],
+             "days": len(a["days"])}[by]
+        items.append({"name": m, "code": m, "value": v})
+    return _rank(items, None)
+
+
+def repair_top_model(conn, start, end, as_of, by="amount") -> list[dict]:
+    agg = defaultdict(float)
+    for r in _repairs(conn, start, end, as_of):
+        if r["model"]:
+            agg[r["model"]] += r["amount"] if by == "amount" else 1
+    return _rank([{"name": m, "code": m, "value": v} for m, v in agg.items()], None)
+
+
+def repair_vehicles(conn, start, end, as_of, min_paid=None, model=None) -> int:
+    """Số chiếc xe = số biển số khác nhau (kể cả xe chỉ tới bảo hành); min_paid: xe có >= N phiếu có thu tiền."""
+    rs = [r for r in _repairs(conn, start, end, as_of) if not model or r["model"] in model]
+    if min_paid is None:
+        return len({r["plate"] for r in rs if r["plate"]})
+    cnt = defaultdict(int)
+    for r in rs:
+        if r["plate"] and not r["warranty"]:
+            cnt[r["plate"]] += 1
+    return sum(v >= min_paid for v in cnt.values())
+
+
+def warranty_rate(conn, start, end, as_of) -> float:
+    rs = _repairs(conn, start, end, as_of)
+    paid = sum(not r["warranty"] for r in rs)
+    return share(sum(r["warranty"] for r in rs), paid)
+
+
+def weekday_avg(conn, start, end, as_of, weekday: int, measure="repairs") -> float:
+    """Trung bình mỗi ngày thứ X: chia số ngày thứ X trong kỳ (kể cả ngày không có phiếu/đơn). weekday: 0 = thứ Hai."""
+    s, e = date.fromisoformat(start), date.fromisoformat(min(end, as_of))
+    days = [(s + timedelta(days=i)) for i in range((e - s).days + 1)]
+    days = {d.isoformat() for d in days if d.weekday() == weekday}
+    if not days:
+        raise NoData("không có ngày thứ đó")
+    if measure == "repairs":
+        tot = sum(1 for r in _repairs(conn, start, end, as_of) if r["date"] in days)
+    elif measure == "orders":
+        tot = sum(1 for (d,) in conn.execute("SELECT order_date FROM std_orders WHERE is_valid = 1 AND order_date BETWEEN ? AND ?",
+                                             (start, min(end, as_of))) if d in days)
+    else:
+        tot = sum(v for d, v in conn.execute("SELECT order_date, revenue FROM std_orders WHERE is_valid = 1 AND order_date BETWEEN ? AND ?",
+                                             (start, min(end, as_of))) if d in days)
+    return tot / len(days)
+
+
+# ----------------------------- cửa hàng điện thoại (rulebook public §Cửa hàng điện thoại) ---------------
+
+def _valid_orders(conn, start, end, as_of) -> list[str]:
+    w, args = _order_rows(conn, start, end, as_of, {})
+    return [r[0] for r in conn.execute(f"SELECT o.order_id FROM std_orders o WHERE {w}", args)]
+
+
+def tradein_total(conn, start, end, as_of) -> float:
+    """Tiền thu máy cũ của đơn không huỷ, không trả trong kỳ (theo ngày đơn)."""
+    _need(conn, "std_tradeins")
+    ids = set(_valid_orders(conn, start, end, as_of))
+    return sum(v or 0 for oid, v in conn.execute("SELECT order_id, tradein_value FROM std_tradeins") if str(oid) in ids)
+
+
+def tradein_order_share(conn, start, end, as_of) -> float:
+    """% đơn (hợp lệ) có thu máy cũ."""
+    _need(conn, "std_tradeins")
+    ids = set(_valid_orders(conn, start, end, as_of))
+    with_t = {str(o) for (o,) in conn.execute("SELECT DISTINCT order_id FROM std_tradeins")} & ids
+    return share(len(with_t), len(ids))
+
+
+def customer_pays(conn, start, end, as_of, avg=False) -> float:
+    """Khách phải trả = tiền đơn sau bớt (+ ship) và sau trừ máy cũ, gồm phần còn nợ; đơn hợp lệ."""
+    _need(conn, "std_order_money")
+    ids = _valid_orders(conn, start, end, as_of)
+    due = dict(conn.execute("SELECT order_id, amount_due FROM std_order_money").fetchall())
+    trade = defaultdict(float)
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_tradeins'").fetchone():
+        for o, v in conn.execute("SELECT order_id, tradein_value FROM std_tradeins"):
+            trade[str(o)] += v or 0
+    tot = sum((due.get(o) or 0) - trade[o] for o in ids)
+    if avg:
+        if not ids:
+            raise NoData("không có đơn")
+        return tot / len(ids)
+    return tot
+
+
+def _add_months(d: date, n: int, day: int) -> date:
+    y, m = d.year + (d.month - 1 + n) // 12, (d.month - 1 + n) % 12 + 1
+    import calendar
+    return date(y, m, min(int(day), calendar.monthrange(y, m)[1]))
+
+
+def installment_status(conn, day: str, as_of) -> list[dict]:
+    """Mỗi hợp đồng góp tại hết ngày `day`: còn chưa góp (cả kỳ chưa tới hạn), số kỳ tới hạn (hạn <= day),
+    tiền quá hạn (kỳ có hạn TRƯỚC day mà chưa góp đủ)."""
+    _need(conn, "std_installments")
+    day = min(day, as_of)
+    d = date.fromisoformat(day)
+    paid = defaultdict(float)
+    for cid, pd_, a in conn.execute("SELECT contract_id, paid_date, amount FROM std_installment_payments"):
+        if pd_ and pd_[:10] <= day:
+            paid[cid] += a or 0
+    out = []
+    for cid, buy, cust, price, pre, n, monthly, due_day in conn.execute(
+            "SELECT contract_id, buy_date, customer, price, prepaid, n_terms, monthly, due_day FROM std_installments"):
+        if not buy or buy > day:
+            continue
+        b = date.fromisoformat(buy[:10])
+        dues = [_add_months(b, i + 1, due_day or b.day) for i in range(int(n or 0))]
+        rest = (price or 0) - (pre or 0) - paid[cid]
+        overdue = max(0.0, sum(monthly or 0 for x in dues if x < d) - paid[cid])
+        out.append({"id": cid, "customer": cust, "rest": max(rest, 0.0), "due_terms": sum(x <= d for x in dues),
+                    "overdue": overdue})
+    return out
+
+
+def warranty_visits(conn, start, end, as_of, model=None) -> list[dict]:
+    _need(conn, "std_warranties")
+    s, e = start or "0000", min(end or as_of, as_of)
+    return [{"date": d, "imei": i, "model": m, "buy": b} for d, i, m, b in conn.execute(
+        "SELECT service_date, imei, model, buy_date FROM std_warranties WHERE service_date BETWEEN ? AND ?", (s, e))
+        if not model or _ukey(m) == _ukey(model)]
+
+
+def phones_sold(conn, start, end, as_of) -> float:
+    """Số máy bán (máy mới + máy cũ), đơn không huỷ, không trả."""
+    cats = [c for (c,) in conn.execute("SELECT DISTINCT category FROM std_lines WHERE category IS NOT NULL") if "may" in _ukey(c)]
+    if not cats:
+        raise NoData("không phân loại được máy")
+    return qty(conn, start, end, as_of, category=cats)
+
+
+# ----------------------------- mẹ & bé (rulebook public §Mẹ và bé) -----------------------------
+
+def adjust_total(conn, start, end, as_of, kind: str) -> float:
+    """Tiền giảm voucher / giảm nhờ dùng điểm / phí ship: số dương, theo ngày hoá đơn, hoá đơn không huỷ, không trả.
+    kind: 'voucher' | 'diem' | 'ship' — khớp theo tên dòng điều chỉnh."""
+    w, args = _order_rows(conn, start, end, as_of, {})
+    rows = conn.execute(f"SELECT l.product_name, l.adjust_amount, l.line_revenue FROM std_lines l JOIN std_orders o USING(order_id) "
+                        f"WHERE {w} AND l.line_kind = 'adjustment'", args).fetchall()
+    pat = {"voucher": r"voucher|vau ?cho|giam gia", "diem": r"diem", "ship": r"ship|giao hang|van chuyen"}[kind]
+    hit = [abs(a if a is not None else (r or 0)) for n, a, r in rows if re.search(pat, _ukey(n))]
+    if not rows:
+        raise NoData("shop không ghi dòng điều chỉnh")
+    return sum(hit)
+
+
+def new_members(conn, start, end, as_of) -> int:
+    """Khách có ngày đăng ký trong kỳ, kể cả khách chưa mua."""
+    s, e = start or "0000", min(end or as_of, as_of)
+    n = conn.execute("SELECT COUNT(*) FROM std_customers WHERE substr(register_date, 1, 10) BETWEEN ? AND ?", (s, e)).fetchone()[0]
+    if not conn.execute("SELECT COUNT(register_date) FROM std_customers").fetchone()[0]:
+        raise NoData("shop không ghi ngày đăng ký")
+    return n
+
+
+def top_brands(conn, start, end, as_of, k=1, by="qty", **F) -> list[dict]:
+    w, args = _order_rows(conn, start, end, as_of, F)
+    lw = _where_lines(conn, F, args)
+    val = "SUM(l.qty_base)" if by == "qty" else "SUM(l.line_revenue)"
+    rows = conn.execute(f"SELECT p.brand, {val} FROM std_lines l JOIN std_orders o USING(order_id) JOIN std_products p "
+                        f"ON p.product_name = l.product_name WHERE {w} AND p.brand IS NOT NULL {''.join(' AND ' + x for x in lw)} "
+                        "GROUP BY 1", args).fetchall()
+    return _rank([{"name": b, "code": b, "value": v} for b, v in rows], k)
+
+
+# ----------------------------- giao nhiều đợt (VLXD) -----------------------------
+
+def delivery_rounds(conn, start, end, as_of) -> int:
+    """Số đợt giao có ngày giao trong kỳ (tới hết hôm nay); mỗi đợt của mỗi đơn một đợt, kể cả đơn sau đó trả hàng."""
+    _need(conn, "std_deliveries")
+    s, e = start or "0000", min(end or as_of, as_of)
+    return conn.execute("SELECT COUNT(*) FROM (SELECT DISTINCT d.order_id, d.round FROM std_deliveries d JOIN std_orders o USING(order_id) "
+                        "WHERE d.deliver_date BETWEEN ? AND ? AND o.status_norm != 'huỷ')", (s, e)).fetchone()[0]
+
+
+def delivered(conn, order_start, order_end, as_of, product=None, min_rounds=None) -> float:
+    """Đơn đặt trong kỳ: tổng số lượng (đơn vị cơ bản) đã chở tới hết hôm nay; min_rounds: số đơn đã giao >= N đợt."""
+    _need(conn, "std_deliveries")
+    rows = conn.execute("SELECT d.order_id, d.round, d.product_name, d.qty_base FROM std_deliveries d JOIN std_orders o USING(order_id) "
+                        "WHERE o.order_date BETWEEN ? AND ? AND d.deliver_date <= ? AND o.status_norm != 'huỷ'",
+                        (order_start, order_end, as_of)).fetchall()
+    if min_rounds:
+        rounds = defaultdict(set)
+        for oid, r, _, _ in rows:
+            rounds[oid].add(r)
+        return sum(len(v) >= min_rounds for v in rounds.values())
+    return sum(q or 0 for _, _, p, q in rows if product is None or p == product)
+
+
+# ----------------------------- xếp hạng theo luật public §3 -----------------------------
+
+def customer_rank(conn, start, end, as_of, by: str, k=1) -> list[dict]:
+    """by: 'days' (trung thành: nhiều ngày có mua), 'cancels' (đổi ý: nhiều đơn huỷ), 'avg3' (sộp: TB đơn cao nhất, >= 3 đơn)."""
+    valid_only = by != "cancels"
+    w, args = _order_rows(conn, start, end, as_of, {}, valid_only=valid_only)
+    val = {"days": "COUNT(DISTINCT o.order_date)", "cancels": "SUM(o.status_norm = 'huỷ')", "avg3": "AVG(o.revenue)"}[by]
+    having = " HAVING COUNT(*) >= 3" if by == "avg3" else ""
+    rows = conn.execute(f"SELECT o.customer_key, COALESCE(MIN(c.customer_name), MIN(o.customer_name)), MIN(o.customer_id), {val} "
+                        f"FROM std_orders o LEFT JOIN std_customers c USING(customer_key) WHERE {w} AND o.customer_key IS NOT NULL "
+                        f"AND o.customer_key != '' GROUP BY o.customer_key{having}", args).fetchall()
+    return _rank([{"name": n, "code": cid or key, "value": v or 0} for key, n, cid, v in rows], k)
+
+
+def products_by_orders(conn, start, end, as_of, k=1) -> list[dict]:
+    """Ưa chuộng nhất: có mặt trong nhiều đơn nhất."""
+    w, args = _order_rows(conn, start, end, as_of, {})
+    rows = conn.execute(f"SELECT l.product_name, MIN(l.product_id), COUNT(DISTINCT o.order_id) FROM std_lines l JOIN std_orders o "
+                        f"USING(order_id) WHERE {w} AND l.is_service_fee = 0 AND COALESCE(l.line_kind, 'item') = 'item' GROUP BY 1",
+                        args).fetchall()
+    return _rank([{"name": n, "code": c, "value": v} for n, c, v in rows], k)
+
+
+def peak_hour(conn, start, end, as_of) -> int:
+    """Khung một giờ tròn theo giờ tạo đơn có nhiều đơn nhất; đáp án là giờ bắt đầu."""
+    w, args = _order_rows(conn, start, end, as_of, {})
+    rows = conn.execute(f"SELECT CAST(substr(o.order_time, 1, 2) AS INTEGER), COUNT(*) FROM std_orders o WHERE {w} "
+                        "AND o.order_time IS NOT NULL AND o.order_time != '' GROUP BY 1", args).fetchall()
+    if not rows:
+        raise NoData("shop không ghi giờ đơn")
+    return sorted(rows, key=lambda r: (-r[1], r[0]))[0][0]
+
+
+def main_supplier(conn, start, end, as_of) -> str:
+    """Nhà cung cấp chính: nhiều phiếu nhập nhất trong kỳ, bỏ phiếu huỷ."""
+    _need(conn, "std_purchases")
+    rows = conn.execute("SELECT supplier, COUNT(DISTINCT purchase_id) FROM std_purchases WHERE purchase_date BETWEEN ? AND ? "
+                        "AND COALESCE(is_cancelled, 0) = 0 AND supplier IS NOT NULL GROUP BY 1",
+                        (start or "0000", min(end or as_of, as_of))).fetchall()
+    if not rows:
+        raise NoData("không có phiếu nhập")
+    return sorted(rows, key=lambda r: (-r[1], r[0]))[0][0]
+
+
+def employee_days(conn, start, end, as_of, k=1) -> list[dict]:
+    """Chăm chỉ nhất: nhiều ngày làm việc nhất (ngày có ít nhất một đơn người đó bán)."""
+    w, args = _order_rows(conn, start, end, as_of, {}, valid_only=False)
+    rows = conn.execute(f"SELECT o.employee_id, COUNT(DISTINCT o.order_date) FROM std_orders o WHERE {w} AND o.employee_id IS NOT NULL "
+                        "AND o.employee_id != '' GROUP BY 1", args).fetchall()
+    if not rows:
+        raise NoData("shop không ghi nhân viên")
+    return _rank([{"name": e, "code": e, "value": v} for e, v in rows], k)
+
+
+def purchase_qty(conn, product: str, start, end, as_of) -> float:
+    """Số lượng nhập (đơn vị cơ bản), phiếu không huỷ, ngày phiếu trong kỳ."""
+    _need(conn, "std_purchases")
+    return sum((q or 0) * (unit_factor(conn, product, u) or 1) for q, u in conn.execute(
+        "SELECT qty, unit FROM std_purchases WHERE product_name = ? AND COALESCE(is_cancelled, 0) = 0 AND purchase_date BETWEEN ? AND ?",
+        (product, start or "0000", min(end or as_of, as_of))))
+
+
+def import_minus_sales(conn, product: str, start, end, as_of) -> float:
+    """§5: nhập trừ bán — phần bán là số lượng của đơn tính doanh thu, cùng đơn vị (cơ bản) với phần nhập."""
+    return purchase_qty(conn, product, start, end, as_of) - qty(conn, start, end, as_of, product=product)
+
+
+def expenses(conn, start, end, as_of) -> float:
+    """Tổng mọi khoản trong sổ chi phí có ngày trong kỳ (bảng tên có 'chi phí', cột tiền + cột ngày)."""
+    s, e = start or "0000", min(end or as_of, as_of)
+    for (t,) in conn.execute("SELECT DISTINCT table_name FROM _meta_columns WHERE replace(table_name, '_', '') LIKE '%chiphi%'"):
+        cols = [r[0] for r in conn.execute("SELECT column_name FROM _meta_columns WHERE table_name = ?", (t,))]
+        amt = next((c for c in cols if re.search(r"tien|so_?tien|chi$|amount", c) and not re.search(r"ngay|ghi|muc|nhom", c)), None)
+        day = next((c for c in cols if re.search(r"ngay|date|thoi_?gian", c)), None)
+        if amt and day:
+            return conn.execute(f'SELECT COALESCE(SUM("{amt}"), 0) FROM "{t}" WHERE substr("{day}", 1, 10) BETWEEN ? AND ?',
+                                (s, e)).fetchone()[0]
+    raise NoData("shop không có sổ chi phí")
+
+
+def profit_net(conn, start, end, as_of) -> float:
+    """Lãi ròng = lãi gộp − mọi khoản trong sổ chi phí của kỳ."""
+    return profit_gross(conn, start, end, as_of) - expenses(conn, start, end, as_of)

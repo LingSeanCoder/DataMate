@@ -770,6 +770,7 @@ def build_std(conn: sqlite3.Connection) -> dict:
             alt = lines["product_name"].map(_key)
             units = lines["unit"].map(_key) if unit else pd.Series([""] * n)
             factor = [conv.get((k, u), conv.get((a, u), 1.0)) for k, a, u in zip(keys, alt, units)]
+            factor = [1.0 if f is None or f != f else f for f in factor]  # hệ số trống = chỉ bán theo đơn vị cơ bản
             lines["qty_base"] = lines["qty"] * factor
         meta["line.abbrev"] = _expand_abbrev(conn, cols, line_t, lines)
         meta["line.catalog_fill"] = _fill_from_catalog(conn, cols, line_t, lines, bool(name), bool(code))

@@ -205,7 +205,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
         if not take(m):
             continue
         add(m.start(), _period(today.replace(day=1), today, "month_to_date", "tháng này"))
-    for m in re.finditer(r"(?:cung ky )?thang (?:lien )?(?:truoc|roi)", q):
+    for m in re.finditer(r"(?:cung ky )?thang (?:lien |ngay )?(?:truoc|roi)", q):
         if not take(m):
             continue
         py, pm = _prev_month(today.year, today.month)
@@ -214,7 +214,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
             add(m.start(), _period(date(py, pm, 1), end, "same_period_prev_month", "cùng kỳ tháng trước"))
         else:  # "so với tháng trước (đó)": neo theo kỳ được hỏi nếu câu có kỳ cụ thể (xử lý cuối hàm)
             add(m.start(), _period(date(py, pm, 1), _month_end(py, pm), "month", "tháng trước", rel="prev_month"))
-    for m in re.finditer(r"(?:cung ky|cung thang) nam (?:truoc|ngoai|roi)|nam (?:truoc|ngoai) cung ky", q):
+    for m in re.finditer(r"(?:cung ky|cung thang|thang \d{1,2}) nam (?:truoc|ngoai|roi)|nam (?:truoc|ngoai) cung ky", q):
         if take(m):
             add(m.start(), _period(None, None, "same_period_prev_year", "cùng kỳ năm trước", rel="prev_year"))
 
@@ -314,7 +314,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
 
     out = []
     for _, p in sorted(found, key=lambda t: t[0]):  # bỏ kỳ trùng ("Năm nay, tính từ đầu năm...")
-        if p.get("rel") or not any((p["start"], p["end"]) == (o["start"], o["end"]) and p["start"] for o in out):
+        if p.get("rel") or not any((p["start"], p["end"]) == (o["start"], o["end"]) and p["start"] for o in out if not o.get("rel")):
             out.append(p)
     # "tới bữa ni ..., tính cả kỳ hạn đúng bữa ni": ngày lẻ trùng mốc "đến hết" là cùng một mốc
     upto_ends = {p["end"] for p in out if p["kind"] == "upto"}

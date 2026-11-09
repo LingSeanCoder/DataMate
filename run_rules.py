@@ -29,12 +29,14 @@ def _filters(ent: dict, qn: str) -> dict:
     F["size"] = ent.get("size") if ent.get("size") and not re.fullmatch(r"[ML]", ent["size"][0]) else None
     if ent.get("size") and re.fullmatch(r"[ML]", ent["size"][0]):  # cà phê: size = tên món kết thúc (M)/(L)
         F["size_suffix"] = ent["size"][0]
+    if ent.get("product") and ent.get("category") and ent["product"]["confidence"] < 0.9:
+        ent["product"] = None  # "máy mới, máy cũ ... điện thoại" là nhóm, không phải "Giá đỡ điện thoại"
     if ent.get("product"):
         F["product"] = ent["product"]["name"]
         F["category"] = F["brand"] = F["size"] = None  # đã có tên hàng cụ thể
     if ent.get("hoat_chat"):
         F["ingredient"] = ent["hoat_chat"]
-    if re.search(r"khong (can )?(ke )?don|khong ke don|tru (cac )?(thuoc )?ke don|ngoai (thuoc )?ke don", qn):
+    if re.search(r"(khong|hong) (can )?(ke )?don|khong ke don|tru (cac )?(thuoc )?ke don|ngoai (thuoc )?ke don", qn):
         F["prescription"] = False
     elif re.search(r"ke don", qn):
         F["prescription"] = True
@@ -52,7 +54,7 @@ def _filters(ent: dict, qn: str) -> dict:
 
 
 def _measure(qn: str) -> str:
-    if re.search(r"(bao nhieu|may|so|tong so|tong cong|tong) (don|bill|hoa don|phieu)\b|so don\b", qn):
+    if re.search(r"(bao nhieu|nhieu|may|so|tong so|tong cong|tong) (don|bill|hoa don|phieu)\b|so don\b", qn):
         return "orders"
     if re.search(r"(bao nhieu|may|so|tong so|tong cong|so luong) " + UNIT_RX + r"\b|so luong|ban (duoc|ra) .{0,40}\b" + UNIT_RX + r"\b(?! tien)", qn) \
             and not re.search(r"tien|doanh thu|doanh so", qn):
@@ -103,7 +105,8 @@ def _main_periods(pers):
 
 
 def _amount(txt: str) -> float | None:
-    m = re.search(r"(\d[\d.,]*)\s*(k|nghin|ngan|trieu|tr|ty)?\b", txt)
+    txt = re.sub(r"(?<=\d)\s*(d|dong|vnd)(?![a-z])", " ", txt)  # "3.200đ" -> "3.200"
+    m = re.search(r"(\d[\d.,]*)\s*(k|nghin|ngan|trieu|tr|ty)?(?![a-z\d])", txt)
     if not m:
         return None
     raw = m.group(1).rstrip(".,")
@@ -144,6 +147,121 @@ def _debt(conn, qn, as_of, pers, main, ent, k) -> dict:
     return shape_answer(M.debt_total(conn, upto, as_of), "number", money=True)
 
 
+Q_JOBS = [(r"dau lap|nhot lap|nhot hop so", "nhot lap"), (r"\bva\b( ruot| xe)?", "va ruot"), (r"thay ruot", "thay ruot"),
+          (r"sua dien|lam dien", "sua dien"), (r"thay nhot|nhot may", "nhot may"), (r"bao duong", "bao duong"),
+          (r"rua xe", "rua xe"), (r"kim phun", "kim phun"), (r"\bnoi\b", "lam noi"), (r"bo thang truoc|ma phanh truoc", "bo thang truoc"),
+          (r"bo thang sau|ma phanh sau", "bo thang sau"), (r"loc gio", "loc gio"), (r"\bsen\b", "sen"), (r"bu ?gi", "bugi"),
+          (r"bong den", "bong den"), (r"thay vo|vo xe", "vo xe"), (r"cu ?roa", "curoa"), (r"nhong|xich", "nhong xich"),
+          (r"nuoc (lam )?mat", "nuoc mat"), (r"ac quy|thay binh", "ac quy")]
+WEEKDAYS = {"hai": 0, "2": 0, "ba": 1, "3": 1, "tu": 2, "4": 2, "nam": 3, "5": 3, "sau": 4, "6": 4, "bay": 5, "7": 5}
+
+
+def _weekday(qn: str) -> int | None:
+    if re.search(r"chu nhat|\bcn\b", qn):
+        return 6
+    m = re.search(r"\bthu (hai|ba|tu|nam|sau|bay|[2-7])\b", qn)
+    return WEEKDAYS[m.group(1)] if m else None
+
+
+def _repair(conn, qn, as_of, main, span, ent, k, plural, pct) -> dict:
+    mech = ent.get("employee")
+    wd = _weekday(qn)
+    if wd is not None and re.search(r"trung binh|binh quan", qn) and main:
+        return shape_answer(M.weekday_avg(conn, *span, as_of, wd), "number")
+    if re.search(r"hoa hong|hue hong", qn):
+        rows = M.mechanic_table(conn, *span, as_of, by="commission")
+        if mech:
+            return shape_answer(next((r["value"] for r in rows if r["name"] in mech), 0), "number", money=True)
+        if re.search(r"bang|tung tho|moi tho|cac tho", qn):
+            return shape_answer([[r["name"], r["value"]] for r in rows], "table", money=True, columns=["tho", "hoa_hong"])
+        return shape_answer(rows[0]["name"], "string")
+    if re.search(r"trung binh|binh quan", qn) and re.search(r"phieu|luot", qn) and not re.search(r"(bao nhieu|may) (luot|phieu)", qn):
+        return shape_answer(M.repair_avg_ticket(conn, *span, as_of, mech), "number", money=True)
+    by = "days" if re.search(r"cham chi|sieng", qn) else "amount" if re.search(r"tien|doanh thu", qn) else "count"
+    if not mech and re.search(r"\b(tho|ai)\b .{0,40}nhat", qn):
+        rows = M.mechanic_table(conn, *span, as_of, by=by)
+        return shape_answer([r["name"] for r in rows[: k or 1]], "list") if plural else shape_answer(rows[0]["name"], "string")
+    if re.search(r"bao hanh", qn) and not re.search(r"khong tinh .{0,20}bao hanh", qn):
+        if pct:
+            return shape_answer(M.warranty_rate(conn, *span, as_of), "percent")
+        n = sum(r["warranty"] for r in M._repairs(conn, *span, as_of, mech))
+        return shape_answer(n, "number")
+    if re.search(r"dong xe (nao|mo|gi)", qn):
+        rows = M.repair_top_model(conn, *span, as_of, by="amount" if re.search(r"tien", qn) else "count")
+        return shape_answer(rows[0]["name"], "string")
+    if re.search(r"khach quen|toi nhieu lan|quay lai .{0,10}lan|tu 2 lan|2 lan tro len", qn):
+        return shape_answer(M.repair_vehicles(conn, *span, as_of, min_paid=2), "number")
+    models = [m for (m,) in conn.execute("SELECT DISTINCT model FROM std_repairs WHERE model IS NOT NULL")
+              if re.search(rf"\b{re.escape(cnorm(m))}\b", qn)]
+    if re.search(r"xe .{0,30}khac nhau|bao nhieu (chiec )?xe|may (chiec )?xe|chiec .{0,20}khac nhau|moi xe tinh mot lan", qn):
+        return shape_answer(M.repair_vehicles(conn, *span, as_of, model=models or None), "number")
+    job = next((j for pat, j in Q_JOBS if re.search(pat, qn)), None)
+    if re.search(r"luot|phieu", qn) and not re.search(r"\btien\b|doanh thu", qn):
+        return shape_answer(M.repair_count(conn, *span, as_of, mech, job=job), "number")
+    if mech and re.search(r"\btien\b|doanh thu", qn):
+        return shape_answer(M.repair_revenue(conn, *span, as_of, mech), "number", money=True)
+    return None  # câu chung (doanh thu, so sánh, ngày cao nhất...) đi luồng thường trên std_orders
+
+
+def _has_rows(conn, table: str) -> bool:
+    try:
+        return conn.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _phone_shop(conn, qn, as_of, pers, main, span, pct) -> dict | None:
+    """Thu máy cũ, khách phải trả, trả góp, bảo hành máy (rulebook public §Cửa hàng điện thoại)."""
+    upto = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
+    if _has_rows(conn, "std_installments") and re.search(r"\bgop\b|tra gop", qn) and not re.search(r"gop (het|ca|chung|tat)|gop mat", qn):
+        st = M.installment_status(conn, upto, as_of)
+        names = {M._ukey(x["customer"]) for x in st if x["customer"]}
+        who = next((n for n in sorted(names, key=len, reverse=True) if f" {n} " in f" {qn} "), None)
+        if who:
+            mine = [x for x in st if M._ukey(x["customer"]) == who]
+            if re.search(r"toi han|den han", qn) and re.search(r"may ky|bao nhieu ky", qn):
+                return shape_answer(sum(x["due_terms"] for x in mine), "number")
+            return shape_answer(sum(x["rest"] for x in mine), "number", money=True)
+        if re.search(r"qua han|cham gop|tre han", qn):
+            if re.search(r"(bao nhieu|may|mi|so) (khach|nguoi|ngui)", qn):
+                return shape_answer(sum(x["overdue"] > 0 for x in st), "number")
+            return shape_answer(sum(x["overdue"] for x in st), "number", money=True)
+        return shape_answer(sum(x["rest"] for x in st), "number", money=True)
+    if _has_rows(conn, "std_warranties") and re.search(r"bao hanh", qn) and main:
+        if re.search(r"dong may (nao|mo|gi)", qn):
+            cnt = defaultdict(int)
+            for v in M.warranty_visits(conn, *span, as_of):
+                cnt[v["model"]] += 1
+            return shape_answer(sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[0][0], "string")
+        if re.search(r"may ban (ra )?(trong )?thang|ban (ra )?thang .{0,30}(mang|dem|toi)", qn):
+            mo = next((p for p in main if p["kind"] == "month"), None)
+            if mo is None:
+                return ABSTAIN
+            s0, e0 = mo["start"], mo["end"]
+            imeis = {v["imei"] for v in M.warranty_visits(conn, None, as_of, as_of) if v["buy"] and s0 <= v["buy"][:10] <= e0}
+            return shape_answer(len(imeis), "number")
+        n = len(M.warranty_visits(conn, *span, as_of))
+        if pct or re.search(r"so voi so may", qn):
+            return shape_answer(M.share(n, M.phones_sold(conn, *span, as_of)), "percent")
+        return shape_answer(n, "number")
+    m = re.search(r"\bmay ([a-z]+) chiem", qn)  # "máy Samsung chiếm % tổng số máy bán": hãng = chữ đầu tên hàng (iPhone = Apple)
+    if main and m and pct:
+        brand = m.group(1)
+        cats = [c for (c,) in conn.execute("SELECT DISTINCT category FROM std_lines WHERE category IS NOT NULL") if "may" in M._ukey(c)]
+        names = [n for (n,) in conn.execute("SELECT DISTINCT product_name FROM std_lines WHERE category IN (%s)" % ",".join("?" * len(cats)), cats)
+                 if (M._ukey(n).split() or [""])[0] == brand or (brand == "apple" and M._ukey(n).startswith("iphone"))]
+        if cats and names:
+            return shape_answer(M.share(M.qty(conn, *span, as_of, product=names), M.phones_sold(conn, *span, as_of)), "percent")
+    if main and re.search(r"khach phai tra", qn):
+        avg = bool(re.search(r"trung binh|binh quan|moi don", qn))
+        return shape_answer(M.customer_pays(conn, *span, as_of, avg=avg), "number", money=True)
+    if main and _has_rows(conn, "std_tradeins") and re.search(r"may cu", qn) and re.search(r"\b(thu|tru)\b", qn) and not re.search(r"trung binh moi may", qn):
+        if pct:
+            return shape_answer(M.tradein_order_share(conn, *span, as_of), "percent")
+        return shape_answer(M.tradein_total(conn, *span, as_of), "number", money=True)
+    return None
+
+
 def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
     main = _main_periods(pers)
     comp = [p for p in pers if p.get("role") == "compare"]
@@ -157,13 +275,126 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         qn = qn.replace(cnorm(ent["product"]["name"]), " ")
     pct = bool(re.search(r"%|phan tram|ti trong|ti le|chiem", qn))
 
+    # Tiệm sửa xe: mọi câu đi qua sổ sửa xe.
+    if main and conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_repairs'").fetchone() and \
+            conn.execute("SELECT COUNT(*) FROM std_repairs").fetchone()[0] > 0:
+        r = _repair(conn, qn, as_of, main, span, ent, k, plural, pct)
+        if r is not None:
+            return r
+
+    r = _phone_shop(conn, qn, as_of, pers, main, span, pct)
+    if r is not None:
+        return r
+
+    # Voucher / dùng điểm / phí ship, khách đăng ký mới (mẹ & bé).
+    if main and re.search(r"voucher|vau ?cho|dung diem|tru diem|phi ship|tien ship", qn):
+        kind = "ship" if re.search(r"ship", qn) else "diem" if re.search(r"diem", qn) else "voucher"
+        return shape_answer(M.adjust_total(conn, *span, as_of, kind), "number", money=True)
+    if main and re.search(r"thanh vien moi|dang ky moi|dang ky thanh vien", qn):
+        return shape_answer(M.new_members(conn, *span, as_of), "number")
+    # Hãng nào bán nhiều nhất.
+    if main and re.search(r"\b(hang|thuong hieu) nao\b.{0,40}nhat|nhat .{0,20}\b(hang|thuong hieu) nao\b", qn):
+        items = M.top_brands(conn, *span, as_of, k=k or 1, by="revenue" if re.search(r"tien|doanh thu", qn) else "qty",
+                             **{kk: v for kk, v in _clean(F).items() if kk not in ("unit",)})
+        if items:
+            names = [it["name"] for it in items]
+            return shape_answer(names, "list") if plural else shape_answer(names[0], "string")
+
+    # Giao hàng nhiều đợt.
+    if main and _has_rows(conn, "std_deliveries") and re.search(r"dot (giao|hang)|cho di|da giao|da cho|xe .{0,10}(giao|cho)|luot giao", qn):
+        mo = next((p for p in main if p["kind"] in ("month", "quarter", "range", "month_to_date")), main[0])
+        if re.search(r"don (dat|ban)|khach dat", qn):  # "các đơn đặt tháng X, tới hôm nay đã chở ..."
+            m2 = re.search(r"(\d+) dot tro len|tu (\d+) dot", qn)
+            if m2:
+                return shape_answer(M.delivered(conn, mo["start"], mo["end"], as_of, min_rounds=int(m2.group(1) or m2.group(2))), "number")
+            if ent.get("product"):
+                name = ent["product"]["name"]
+                q = M.delivered(conn, mo["start"], mo["end"], as_of, product=name)
+                units = re.findall(r"(?:bao nhieu|may|so) " + UNIT_RX + r"\b", qn)
+                f = M.unit_factor(conn, name, units[0]) if units else 1
+                return shape_answer(q / f if f else q, "number")
+            return ABSTAIN
+        if ent.get("product"):
+            return ABSTAIN
+        return shape_answer(M.delivery_rounds(conn, mo["start"], mo["end"], as_of), "number")
+
+    # Nhập trừ bán / số lượng nhập (đơn vị cơ bản).
+    if main and ent.get("product") and re.search(r"\bnhap\b", qn):
+        name = ent["product"]["name"]
+        units = re.findall(r"(?:bao nhieu|may|so) " + UNIT_RX + r"\b", qn)
+        f = (M.unit_factor(conn, name, units[0]) or 1) if units else 1
+        if re.search(r"nhap tru (so )?ban|tru (so .{0,10})?ban", qn):
+            return shape_answer(M.import_minus_sales(conn, name, *span, as_of) / f, "number")
+        if units and not re.search(r"tien|gia", qn):
+            return shape_answer(M.purchase_qty(conn, name, *span, as_of) / f, "number")
+
+    if re.search(r"gio cao diem|dong khach nhat .{0,15}gio|may gio .{0,20}dong|khung gio", qn):
+        s0, e0 = span if main else (None, as_of)
+        return shape_answer(M.peak_hour(conn, s0, e0, as_of), "number")
+
+    # Mặt hàng nào doanh thu/số lượng cao nhất (kể cả trong một nhóm).
+    if main and re.search(r"\b(mat hang|mon|san pham|hang) nao\b.{0,50}(cao nhat|nhieu nhat|lon nhat)", qn) and \
+            not re.search(r"loi|lai|\bkhach\b", qn) and intent not in ("ranking_qty", "ranking_revenue"):
+        intent = "ranking_revenue" if re.search(r"doanh thu|tien", qn) else "ranking_qty"
+
+    # Xếp hạng theo luật public §3.
+    if main:
+        one = lambda items: (shape_answer([it["name"] for it in items], "list") if plural  # noqa: E731
+                             else shape_answer(items[0]["name"], "string")) if items else ABSTAIN
+        if re.search(r"khach .{0,30}trung thanh nhat|trung thanh nhat", qn):
+            return one(M.customer_rank(conn, *span, as_of, "days", k or 1))
+        if re.search(r"doi y nhat|hay doi y", qn):
+            return one(M.customer_rank(conn, *span, as_of, "cancels", k or 1))
+        if re.search(r"khach .{0,20}\bsop\b|\bsop nhat", qn):
+            return one(M.customer_rank(conn, *span, as_of, "avg3", k or 1))
+        if re.search(r"ua chuong nhat|duoc ua chuong", qn):
+            return one(M.products_by_orders(conn, *span, as_of, k or 1))
+        if re.search(r"dat khach nhat", qn):
+            return shape_answer(M.best_period(conn, *span, as_of, grain="day", measure="orders"), "date")
+        if re.search(r"nha cung cap chinh", qn):
+            return shape_answer(M.main_supplier(conn, *span, as_of), "string")
+        if re.search(r"nhan vien .{0,30}(cham chi|sieng)|(cham chi|sieng) nhat", qn):
+            return one(M.employee_days(conn, *span, as_of, k or 1))
+
     # Công nợ (§4).
     if intent.startswith("debt") or re.search(r"\bno them|tra (bot )?no|thu (hoi |duoc )?(tien )?(cong )?no|con no|cong no|"
                                               r"chua tra (het|xong)|con thieu|tuoi no", qn):
         return _debt(conn, qn, as_of, pers, main, ent, k)
 
+    # Lô hạn dùng (§6 nhà thuốc).
+    if re.search(r"het han|han dung|han su dung|\bhsd\b|\blo hang\b|\bcac lo\b|can date", qn) and not re.search(r"ban (duoc|ra)|doanh thu", qn) \
+            and not re.search(r"het hang", qn):
+        if re.search(r"gan het han nhat|het han (som|gan) nhat|han (som|gan) nhat|can date", qn):
+            if not ent.get("product"):
+                return ABSTAIN
+            day = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
+            return shape_answer(M.nearest_expiry(conn, ent["product"]["name"], day, as_of), "date")
+        rng = next((p for p in pers if p["kind"] in ("next_days", "range") and p["start"] and p["end"]), None)
+        if rng is None:  # "từ nay đến hết ngày X"
+            up = next((p for p in pers if p["kind"] == "upto"), None)
+            rng = {"start": as_of, "end": up["end"]} if up else None
+        if rng is None:
+            return ABSTAIN
+        lots = sorted(M.expiring(conn, rng["start"], rng["end"], as_of), key=lambda l: (l["expiry"], str(l["code"])))
+        if re.search(r"tien von|gia tri|bao nhieu tien", qn):
+            if any(l["cost"] is None for l in lots):
+                return ABSTAIN
+            return shape_answer(sum(l["rest"] * l["cost"] for l in lots), "number", money=True)
+        names = list(dict.fromkeys(l["name"] for l in lots))
+        if re.search(r"(bao nhieu|may|so) lo hang\b", qn):
+            return shape_answer(len(lots), "number")
+        if re.search(r"(bao nhieu|may|so) (mat hang|san pham|thuoc|loai)", qn):
+            return shape_answer(len(names), "number")
+        return shape_answer(names, "list")
+
+    # Số mặt hàng hết hàng cuối ngày (§5: tồn = 0 lúc hết ngày).
+    if re.search(r"(bao nhieu|may|so) (mat hang|san pham|mon) .{0,20}het hang", qn):
+        day = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
+        return shape_answer(M.stock_out_count(conn, day, as_of), "number")
+
     # Tồn kho cuối ngày (§5).
-    if re.search(r"\bton\b|ton kho|trong kho|con lai may|con (lai )?bao nhieu", qn) and not re.search(r"\bno\b|lo |han dung|het han", qn):
+    if re.search(r"\bton\b|ton kho|trong kho|con lai may|con (lai )?(bao nhieu|may)|chan.{0,25}\ble\b", qn) and \
+            not re.search(r"\bno\b|lo hang|han dung|het han|\bgop\b|\bnhap\b|ton (bao )?nhieu tien", qn):
         day = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
         if re.search(r"gia von|tien hang|gia tri", qn) and not ent.get("product"):
             return shape_answer(M.stock_value(conn, day, as_of), "number", money=True)
@@ -189,13 +420,21 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(M.unit_price(conn, ent["product"]["name"], main[0]["start"]), "number", money=True)
 
     # Số mặt hàng có mặt trong >= N đơn khác nhau.
-    m = re.search(r"(?<!khach )\b(mat hang|san pham|mon|hang)\b.{0,40}(?:it nhat|tu|≥|>=|tren|o) ?(\d+) ?(?:don|bill)", qn)
+    m = None if re.search(r"\bkhach\b", qn) else re.search(r"\b(mat hang|san pham|mon|hang)\b.{0,40}(?:it nhat|tu|≥|>=|tren|o) ?(\d+) ?(?:don|bill)", qn)
     if m and main and re.search(r"(bao nhieu|may|so|dem)", qn):
         n = int(m.group(2))
         return shape_answer(M.products_in_n_orders(conn, *span, as_of, n, strict=bool(re.search(r"tren \d", qn))), "number")
 
+    # Khách mua nhiều đơn/lần nhất.
+    if main and re.search(r"khach (hang )?nao .{0,30}nhieu (don|lan)|khach .{0,20}nhieu (don|lan) nhat", qn):
+        items = M.top_customers(conn, *span, as_of, k=k or 1, by="orders")
+        if not items:
+            raise M.NoData("không có khách")
+        names = [it["name"] for it in items]
+        return shape_answer(names, "list") if plural else shape_answer(names[0], "string")
+
     # Số khách mua >= N đơn (và % trên số khách đã mua).
-    m = re.search(r"khach.{0,40}(?:it nhat|tu|tren|≥|>=) ?(\d+) ?(?:don|lan)", qn)
+    m = re.search(r"khach.{0,70}(?:it nhat|tu|tren|≥|>=) ?(\d+) ?(?:don|lan)", qn)
     if m and main and not re.search(r"\bno\b", qn):
         n = int(m.group(1))
         strict = bool(re.search(r"tren \d", qn))
@@ -204,12 +443,27 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
             return shape_answer(M.share(cnt, M.customers_with_orders(conn, *span, as_of, min_orders=1)), "percent")
         return shape_answer(cnt, "number")
 
+    # Khách theo đường/địa chỉ: shop không ghi địa chỉ -> unanswerable (§7).
+    if intent == "+customer_address" or re.search(r"khach (o |nha o )?duong [a-z]", qn):
+        has_addr = conn.execute("SELECT 1 FROM _meta_columns WHERE column_name LIKE '%dia%chi%' OR column_name LIKE '%addr%' "
+                                "OR column_name LIKE '%duong%' LIMIT 1").fetchone()
+        return ABSTAIN if has_addr else {"type": "unanswerable", "reason": "shop không ghi địa chỉ khách"}
+
+    # Lãi ròng = lãi gộp − chi phí.
+    if main and re.search(r"(lai|loi) (rong|that)|loi nhuan rong|tru (het )?chi phi", qn):
+        return shape_answer(M.profit_net(conn, *span, as_of), "number", money=True)
+
+    # Hỏi theo thanh toán / kênh mà shop không ghi -> unanswerable (§7).
+    for col, rx in (("pay_method", r"tien mat|chuyen khoan|\bcod\b|vi dien tu|xi o di"), ("channel", r"tai quay|zalo|qua dien thoai|san tmdt|thuong mai dien tu")):
+        if re.search(rx, qn) and not conn.execute(f"SELECT 1 FROM std_orders WHERE {col} IS NOT NULL AND {col} != '' LIMIT 1").fetchone():
+            return {"type": "unanswerable", "reason": f"shop không ghi {col}"}
+
     # Lãi gộp cả kỳ.
-    if main and re.search(r"(loi|lai) gop|loi nhuan gop", qn) and not re.search(r"nhat", qn):
+    if main and re.search(r"(loi|lai) gop|loi nhuan gop|laix gop", qn) and not re.search(r"nhat", qn):
         return shape_answer(M.profit_gross(conn, *span, as_of, **_clean(F)), "number", money=True)
 
     # Hàng lời nhất (lãi gộp, §5).
-    if main and re.search(r"(loi|lai) nhat", qn) and re.search(r"hang|mat hang|san pham|mon", qn):
+    if main and re.search(r"(loi|lai)( nhuan)?( gop)?.{0,15}(nhieu |lon |cao )?nhat", qn) and re.search(r"hang|mat hang|san pham|mon|\bsp\b", qn):
         items = M.top_products(conn, *span, as_of, k=k or 1, by="profit")
         names = [it["name"] for it in items]
         return shape_answer(names, "list") if plural else shape_answer(names[0], "string")
@@ -253,7 +507,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
             return shape_answer(M.cancel_rate(conn, s, e, as_of), "percent")
         return shape_answer(M.cancel_count(conn, s, e, as_of), "number")
 
-    if intent == "comparison_percent":
+    if intent == "comparison_percent" or (intent != "price_hike" and not re.search(r"(len|tang|doi) gia", qn) and comp and main and (pct or re.search(r"hon hay kem|cao hay thap|tang hay giam|len hay xuong", qn))):
         measure = _measure(qn)
         if len(main) >= 1 and comp:
             cur, base = main[0], comp[0]
@@ -279,8 +533,8 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
     if intent == "daily_max":
         if not main:
             return ABSTAIN
-        grain = "month" if re.search(r"thang nao", qn) else "day"
-        if grain == "day" and not re.search(r"ngay nao|hom nao", qn):
+        grain = "month" if re.search(r"thang (nao|mo)\b", qn) else "day"
+        if grain == "day" and not re.search(r"(ngay|hom) (nao|mo)\b", qn):
             return ABSTAIN
         measure = "orders" if _measure(qn) == "orders" else "revenue"
         lowest = bool(re.search(r"(thap|it) nhat", qn))
@@ -357,17 +611,21 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(M.purchase_total(conn, *span, as_of, supplier=F.get("supplier") or ent.get("supplier"),
                                              product=F.get("product")), "number", money=True)
 
-    if intent in ("revenue", "qty_of_product", "revenue_by_category", "brand_size_pct", "prescription_drug", "revenue_by_channel", "revenue_by_payment",
-                  "revenue_by_employee", "revenue_by_shift", "ranking_qty", "ranking_revenue"):
+    if intent not in ("unanswerable", "+customer_address"):  # mọi họ còn lại: số đo chung có bộ lọc
         if not main:
             return ABSTAIN
         measure = _measure(qn)
+        if re.search(r"(trung binh|binh quan) moi (may|chiec|cai)", qn):  # giá bán TB một máy = doanh thu / số máy
+            Fv = _clean(F)
+            n = _value(conn, "qty", *span, as_of, Fv)
+            return shape_answer(_value(conn, "revenue", *span, as_of, Fv) / n if n else None, "number", money=True)
         if re.search(r"don gia|gia ban", qn):
             return ABSTAIN
         Fv = {kk: v for kk, v in F.items() if kk != "customer_name" and v not in (None, [], "")}
         # nhiều giá trị của một thuộc tính ("tại quầy ... điện thoại") -> list theo thứ tự câu
         multi = next((kk for kk, v in Fv.items() if isinstance(v, list) and len(v) > 1 and kk != "product"), None)
-        if multi and not pct:
+        together = re.search(r"\bgop (ca|het|chung|tat)|tinh ca|ca .{0,15}(lan|va|voi) .{0,15}|tat ca", qn)
+        if multi and not pct and not together:
             vals = [_value(conn, measure, *span, as_of, {**Fv, multi: [v]}) for v in Fv[multi]]
             return shape_answer(vals, "list", money=measure == "revenue")
         if len(main) > 1:
@@ -377,7 +635,10 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         if pct:
             if not Fv:
                 return ABSTAIN
-            whole = _value(conn, measure, *span, as_of, {})
+            whole_f = {}
+            if measure == "qty" and (Fv.get("brand") or Fv.get("size")):  # % size/hãng chia tổng bịch cùng nhóm (bỉm tã)
+                whole_f = {kk: v for kk, v in Fv.items() if kk in ("category", "unit")}
+            whole = _value(conn, measure, *span, as_of, whole_f)
             return shape_answer(M.share(val, whole), "percent")
         return shape_answer(val, "number", money=measure == "revenue")
 

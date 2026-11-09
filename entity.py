@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 import re
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from functools import lru_cache
 
@@ -32,6 +32,11 @@ def _norm(s) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s).strip()
 
 
+_COMMON_WORDS = {"binh", "do", "sua", "cham", "quan", "suc", "khan", "an", "tam", "nuoc", "may", "hang", "phu", "thuc", "cac", "giam",
+                 "vat", "dung", "thuoc", "mat", "tim", "ca", "rau", "com", "lau", "mon", "banh", "cafe", "gia", "tien", "don", "ban",
+                 "the", "hop", "lan", "ngay", "thang", "khach", "nhom", "loai", "tong", "chi", "phi", "hai", "kem", "dau", "giay"}
+
+
 def _norm_d(s) -> str:
     """Như _norm nhưng giữ dấu: 'trà' ≠ 'trả', 'gỏi' ≠ 'gọi', 'lẻ' ≠ 'lệ'."""
     return re.sub(r"[\W_]+", " ", str(s or "").lower()).strip()
@@ -46,7 +51,7 @@ def _catalog(db_path: str) -> dict:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         prods = conn.execute(
-            "SELECT product_name, MIN(product_id) FROM std_lines WHERE product_name IS NOT NULL AND is_service_fee = 0 "
+            "SELECT product_name, MIN(product_id) FROM std_lines WHERE product_name IS NOT NULL AND is_service_fee = 0 AND COALESCE(line_kind, 'item') = 'item' "
             "GROUP BY product_name").fetchall() if _has(conn, "std_lines") else []
         custs = conn.execute(
             "SELECT DISTINCT customer_name, customer_id FROM std_orders WHERE customer_name IS NOT NULL OR customer_id IS NOT NULL"
@@ -216,6 +221,13 @@ def extract_entities(question: str, db_path: str) -> dict:
     for attr, values in cat["attrs"].items():
         # (vị trí trong câu, giá trị thật): khớp nguyên cụm đã bỏ dấu, tên trong danh mục -> mã, từ đồng nghĩa
         hits = [(qn.find(f" {_norm(v)} "), v) for v in values if len(nm(v)) >= 2 and f" {nm(v)} " in q_m]
+        if attr == "category" and not hits:  # gọi tắt bằng chữ đầu riêng của một nhóm: "bỉm" -> "bỉm tã"
+            first = defaultdict(list)
+            for v in values:
+                if len(_tokens(v)) >= 2:
+                    first[nm(v).split()[0]].append(v)
+            hits = [(qn.find(f" {_norm(w)} "), vs[0]) for w, vs in first.items()
+                    if len(vs) == 1 and len(_norm(w)) >= 3 and f" {w} " in q_m and _norm(w) not in _COMMON_WORDS]
         hits += [(qn.find(f" {_norm(n)} "), c) for n, c in cat["aliases"].get(attr, {}).items() if f" {nm(n)} " in q_m]
         for group in SYNONYMS.get(attr, []):
             pos = min((qn.find(f" {p} ") for p in group if f" {p} " in qn), default=-1)

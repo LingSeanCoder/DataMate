@@ -74,7 +74,8 @@ def build_order_money(conn, cols, meta: dict) -> int:
                                      and re.match(r"(giam gia|tien giam|chiet khau)", strip_diacritics(c.desc).lower())
                                      and "dong" not in strip_diacritics(c.desc).lower())
             or (_pick(cs, (), ("giamgiahd", "giamgiadon", "tiengiam", "giamgia", "chietkhau"), "number")
-                if t == meta.get("header_table") else None),
+                if t == meta.get("header_table") else None)
+            or _first(cs, lambda c: c.kind == "number" and bool(c.keys & {"bot", "tienbot", "botgia"})),  # "Bớt" cả đơn, lặp mọi dòng
         }
         if pick["amount_due"] is None and t == meta.get("header_table"):  # cột đúng tên "Tổng tiền" (khác "Tổng tiền hàng")
             pick["amount_due"] = _first(cs, lambda c: c.kind == "number" and bool(c.keys & {"tongtien", "tongcong"}))
@@ -394,6 +395,18 @@ def _best_name(s: pd.Series):
     return accented[0] if accented else vc.index[0]
 
 
+_GROUP_WORDS = {"le", "than thiet", "si", "vip", "thuong", "bac", "vang", "kim cuong", "dong", "moi", "quen"}
+
+
+def _group_like(conn, t: str, c) -> bool:
+    """Cột có tập giá trị là nhóm/hạng khách (lẻ, thân thiết, sỉ, VIP...) — nhận theo giá trị khi tên cột lạ ('kieu_khach')."""
+    if c.kind != "text" or c.n_distinct > 8:
+        return False
+    r = conn.execute("SELECT top_values FROM _meta_columns WHERE table_name = ? AND column_name = ?", (t, c.name)).fetchone()
+    vals = {strip_diacritics(v).lower().strip() for v in re.findall(r'"([^"]+)"', (r[0] or "") if r else "")}
+    return len(vals) >= 2 and len(vals & _GROUP_WORDS) >= 2 and vals <= _GROUP_WORDS
+
+
 def build_customers(conn, cols, meta: dict) -> int:
     o = pd.read_sql_query("SELECT rowid AS rid, customer_id, customer_name FROM std_orders", conn)
     if o.empty:
@@ -412,12 +425,13 @@ def build_customers(conn, cols, meta: dict) -> int:
         customer_name=("customer_name", _best_name)).reset_index()
     for c in ("customer_group", "phone", "register_date"):
         cust[c] = None
-    # thuộc tính từ bảng khách (nối theo mã, không có mã thì theo tên)
+    # thuộc tính từ bảng khách (nối theo mã, không có mã thì theo tên); bảng đơn/dòng chỉ lấy cột nhóm khách
     for t, cs in cols.items():
-        if t in (meta.get("header_table"), meta.get("line_table")):
+        if t in (meta.get("header_table"), meta.get("line_table")) and not any(_group_like(conn, t, c) for c in cs):
             continue
         grp = _first(cs, lambda c: c.kind == "text" and (c.role == "customer_group" or c.has("nhomkhach", "loaikhach", "nhomkh", "hangkhach", "hangthanhvien")
-                                                         or bool(c.keys & {"hang", "nhom", "capdo"})))
+                                                         or bool(c.keys & {"hang", "nhom", "capdo"}))) or \
+            _first(cs, lambda c: _group_like(conn, t, c))
         reg = _first(cs, lambda c: c.kind == "date" and c.has("dangky", "ngaytao", "taoluc"))
         ph = _first(cs, lambda c: c.kind == "text" and c.has("sdt", "dienthoai", "phone", "didong"))
         nm = _first(cs, lambda c: c.kind == "text" and c.role in (None, "other", "customer_name", "product_name") and
@@ -512,16 +526,18 @@ def build_stock(conn, cols, meta: dict) -> int:
 def build_lots(conn, cols, meta: dict) -> int:
     """Lô nhập (mã lô + hạn dùng + hàng) và bán theo lô (mã lô + mã đơn + số lượng)."""
     ids = _std_ids(conn)
-    lots, sales = None, None
+    lots, sales, lots_score = None, None, 0
     for t, cs in cols.items():
         lot = _first(cs, lambda c: c.kind == "text" and (any(k in ("lo", "malo", "solo") for k in c.keys) or c.has("malo", "solo")))
         if lot is None:
             continue
         exp = _first(cs, lambda c: c.kind == "date" and c.has("hsd", "handung", "hansudung", "hethan"))
         df = _read(conn, t)
-        if exp is not None and lots is None:
+        qty = _first(cs, lambda c: c.kind == "number" and c.has("soluong", "sl", "nhap") and not c.has("gia"))
+        lot_score = 2 if qty is not None and qty.has("quydoi", "coban") else 1
+        if exp is not None and (lots is None or lot_score > lots_score):  # ưu tiên bảng lô có số lượng quy về đơn vị cơ bản
+            lots_score = lot_score
             prod = _first(cs, _is_product_code) or _first(cs, _is_product_name)
-            qty = _first(cs, lambda c: c.kind == "number" and c.has("soluong", "sl", "nhap") and not c.has("gia"))
             cost = _first(cs, lambda c: c.kind == "number" and c.has("gianhap", "dongianhap", "dongia"))
             doc = _first(cs, lambda c: c.kind == "text" and c.has("phieunhap", "donnhap", "maphieu", "sophieu"))
             lots = pd.DataFrame({"lot_id": df[lot.name], "product_ref": df[prod.name] if prod else None,
@@ -548,6 +564,31 @@ def build_lots(conn, cols, meta: dict) -> int:
     return 0 if lots is None else len(lots)
 
 
+def build_deliveries(conn, cols, meta: dict) -> int:
+    """Sổ giao hàng nhiều đợt: mã đơn + lượt/đợt + ngày chở (+ hàng, số lượng quy đổi)."""
+    ids = _std_ids(conn)
+    for t, cs in cols.items():
+        rnd = _first(cs, lambda c: c.has("luotgiao", "langiao", "dotgiao", "dot") and not c.has("ngay", "thoigian"))
+        dt = _first(cs, lambda c: c.has("ngaycho", "ngaygiao", "thoigiangiao", "ngaychohang"))
+        if rnd is None or dt is None:
+            continue
+        df = _read(conn, t)
+        fk = _fk_to_orders(df, cs, ids, 0.5)
+        if fk is None:
+            continue
+        prod = _first(cs, _is_product_name) or _first(cs, lambda c: c.kind == "text" and c.has("tenhang", "hanghoa", "sanpham"))
+        qty = _first(cs, lambda c: c.kind == "number" and c.has("thucgiao", "soluonggiao", "slgiao", "soluong", "sl")) 
+        out = pd.DataFrame({"order_id": _id_str(df[fk.name]), "round": df[rnd.name].astype("string"),
+                            "deliver_date": _split_dt(df[dt.name])[0],
+                            "product_name": df[prod.name] if prod else None,
+                            "qty_base": pd.to_numeric(df[qty.name], errors="coerce") if qty else None})
+        conn.execute("DROP TABLE IF EXISTS std_deliveries")
+        out.to_sql("std_deliveries", conn, index=False)
+        meta["deliveries.table"] = t
+        return len(out)
+    return 0
+
+
 def build_extra(conn: sqlite3.Connection) -> dict:
     cols = _load_cols(conn)
     meta = dict(conn.execute("SELECT role, source FROM _meta_std").fetchall())
@@ -557,12 +598,13 @@ def build_extra(conn: sqlite3.Connection) -> dict:
         if t not in core:
             conn.execute(f"DROP TABLE {t}")
     meta = {k: v for k, v in meta.items() if not k.startswith(("money.", "payments.", "purchases.", "installments.", "debt_book.",
-                                                               "tradein.", "warranty.", "customers.", "stock.", "lots.", "lot_sales.", "n_"))}
+                                                               "tradein.", "warranty.", "customers.", "stock.", "lots.", "lot_sales.", "deliveries.", "n_"))}
     extra = {"n_order_money": build_order_money(conn, cols, meta), "n_payments": build_payments(conn, cols, meta),
              "n_purchases": build_purchases(conn, cols, meta), "n_installments": build_installments(conn, cols, meta),
              "n_debt_book": build_debt_book(conn, cols, meta), "n_tradeins": build_tradeins(conn, cols, meta),
              "n_warranties": build_warranties(conn, cols, meta), "n_customers": build_customers(conn, cols, meta),
-             "n_stock": build_stock(conn, cols, meta), "n_lots": build_lots(conn, cols, meta)}
+             "n_stock": build_stock(conn, cols, meta), "n_lots": build_lots(conn, cols, meta),
+             "n_deliveries": build_deliveries(conn, cols, meta)}
     meta.update({k: str(v) for k, v in extra.items()})
     conn.execute("DROP TABLE IF EXISTS _meta_std")
     pd.DataFrame(sorted(meta.items()), columns=["role", "source"]).to_sql("_meta_std", conn, index=False)

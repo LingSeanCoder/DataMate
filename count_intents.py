@@ -17,7 +17,7 @@ from data_loader import strip_diacritics
 
 # Teencode/viết tắt -> dạng chuẩn (áp trên chuỗi đã bỏ dấu, lower).
 _TELEX_STEMS = {"thang", "tinh", "ngay", "cua", "no", "sang", "hang", "tien", "ban", "don", "nhat", "het", "nhap", "moi",
-                "quan", "quy", "cao", "trong", "mon", "khach", "bao", "nhieu", "duoc", "doanh", "thu", "tong", "chieu", "gia"}
+                "quan", "quy", "cao", "nao", "nam", "lon", "trong", "mon", "khach", "bao", "nhieu", "duoc", "doanh", "thu", "tong", "chieu", "gia"}
 
 
 def _telex(m: re.Match) -> str:
@@ -43,7 +43,7 @@ TEEN = [
     (r"\b(dh|đh|o do|order)\b", "don"), (r"\b(ddown|down)\b", "don"), (r"\bbest ?seller\b", "ban chay nhat"), (r"\bchay nhat\b", "ban chay nhat"), (r"\bdthu\b", "doanh thu"),
     (r"\b(hnay|hum nay|hoom nay|bua nay|bua ni|hom ni)\b", "hom nay"), (r"\b(hqua|bua qua|hum qua)\b", "hom qua"),
     (r"\b(ni)\b", "nay"), (r"\b(trc|trk)\b", "truoc"), (r"\b(rui|roi)\b", "roi"),
-    (r"\b(mik|mjk|minh)\b", "minh"), (r"\b(ko|k|hok|hong|khum|hem)\b(?=\s|$|\?)", "khong"),
+    (r"\b(mik|mjk|minh)\b", "minh"), (r"\b(ko|k|hok|khum|hem)\b(?=\s|$|\?)", "khong"), (r"(?<!hoa )(?<!hue )\bhong\b(?=\s*\??\s*$)", "khong"),
     (r"\b(trog|trg)\b", "trong"), (r"\b(kac|cac)\b", "cac"), (r"\b(kua|cuar)\b", "cua"), (r"\bcko\b", "cho"),
     (r"\b(bin quan|bnh quan|bq)\b", "binh quan"), (r"\b(trung bih|trung binhf|tb)\b", "trung binh"),
     (r"\bnv\b", "nhan vien"), (r"\bncc\b", "nha cung cap"), (r"\bsp\b", "san pham"), (r"\bkh\b", "khach"),
@@ -54,13 +54,13 @@ TEEN = [
     (r"\s+", " "),
 ]
 
-UNIT = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao|thung|vi|tuyp|kg|m3|phan|to|suat|cay|cuon|tam|thanh|binh|bich|may|chiec|met|xe|tan)"
+UNIT = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao|thung|vi|tuyp|kg|m3|phan(?! tram)|to|suat|cay|cuon|tam|thanh|binh|bich|may|chiec|met|xe|tan)"
 
 RULES: list[tuple[str, str]] = [
-    ("unanswerable", r"(than thien|nhiet tinh|chu dao|le phep|tan tam|kho tinh|trung thuc|dang tin cay|uy tin|de thuong|"
+    ("unanswerable", r"(than thien|nhiet tinh|chu dao|le phep|tan tam|(?<!trong )(?<!ton )kho tinh|trung thuc|dang tin cay|uy tin|de thuong|"
                      r"lanh nghe|vui ve|dep trai|xinh) |(ngon|chat luong|dep) nhat|co nen |nen (chon|mua|dung|nhap)|"
-                     r"(ba bau|tre em|tre so sinh|cho con bu|phu nu co thai).*(dung|uong|an)|lieu dung|uong may|"
-                     r"tac dung phu|chua (benh|dau)|thoi tiet|gioi tinh|khach (nu|nam)\b|dia chi|ly do|vi sao|tai sao"),
+                     r"(ba bau|tre em|tre so sinh|cho con bu|phu nu co thai).*(dung|uong|an)|\blieu dung|\buong may|"
+                     r"\b(huy|tra (lai|mon|hang))\b.{0,40}\bvi\b|ly do (huy|tra)|tac dung phu|chua (benh|dau)|thoi tiet|gioi tinh|khach (nu|nam)\b|\bdia chi|\bly do|\bvi sao|\btai sao"),
     ("+customer_address", r"khach (o|duong|tai|khu|phuong|quan) [a-z]"),
     ("installment", r"tra gop|ky gop|(?<!dong )(?<!loi )(?<!lai )\bgop\b|cham gop"),
     ("tradein", r"\bmay cu\b|\bthu cu\b|tro gia|thu lai may|doi may cu"),
@@ -68,7 +68,7 @@ RULES: list[tuple[str, str]] = [
     ("warranty", r"bao hanh"),
     ("+repair", r"\btho\b|phieu sua|luot xe|bien so|lam gi|thay nhot|hoa hong|dong xe|sua (xe|dien)|va ruot|thay ruot"),
     ("lot_expiry_range", r"het han trong|han dung (tu|trong)|(\d+) ngay toi.*(het han|han)|sap het han.*(\d+) ngay"),
-    ("lot_expiry", r"het han|han dung|han su dung|can date|\bhsd\b|\blo\b"),
+    ("lot_expiry", r"het han|han dung|han su dung|can date|\bhsd\b|\blo hang\b|\bcac lo\b|\blo nao\b"),
     ("prescription_drug", r"ke don|hoat chat"),
     ("debt_by_age", r"(\bno\b|cong no).*(qua|tren|hon) \d+ ngay|tuoi no|dat qua \d+ ngay"),
     ("debt_top", r"(khach|ai) no nhieu nhat|\d+ khach no|khach no .*nhieu nhat|liet ke .*khach no"),
@@ -78,14 +78,14 @@ RULES: list[tuple[str, str]] = [
     ("purchase_avg_price", r"gia nhap (binh quan|trung binh)"),
     ("+import_minus_sales", r"nhap tru ban|nhap .*chenh|chenh lech nhap"),
     ("purchase_total", r"\bnhap\b"),
-    ("stock_value", r"(gia tri|tien) .{0,20}(ton|trong kho)|ton kho .{0,20}(von|gia tri)|tien von .{0,20}lo"),
+    ("stock_value", r"(gia tri|tien) .{0,20}(\bton\b|trong kho)|\bton kho .{0,20}(von|gia tri)|tien von .{0,20}lo"),
     ("+stock_qty", r"\bton\b|ton kho|trong kho|con may|het hang|chay hang|dut hang"),
-    ("price_hike", r"tang gia|len gia|doi gia|giam gia xuong|ngay tang"),
+    ("price_hike", r"tang gia\b|len gia\b|doi gia\b|giam gia xuong|ngay tang\b"),
     ("+cancel_rate", r"\bhuy\b"),
     ("+voucher_ship", r"voucher|phi ship|phi giao|dung diem|giam diem|tien giam"),
     ("profit_net", r"lai rong|loi nhuan rong|tru (het )?chi phi"),
     ("profit_gross", r"lai gop|loi nhuan|\blai\b|loi nhat|\bloi\b"),
-    ("brand_size_pct", r"(size|hang|bim|sua|may|dong may|hang may) .{0,40}chiem .{0,20}(%|phan tram)|so bich"),
+    ("brand_size_pct", r"\b(size|hang|bim|sua|may|dong may|hang may) .{0,40}chiem .{0,20}(%|phan tram)|so bich"),
     ("customer_n_orders_pct", r"khach .{0,40}(it nhat|tu|tren) \d+ don.{0,40}(%|phan tram)"),
     ("customer_n_orders", r"khach .{0,30}(it nhat|tu|tren) \d+ don|khach .{0,30}bao nhieu don|khach .{0,30}mua \d+ don"),
     ("customer_top", r"khach .{0,40}nhat|khach (sop|trung thanh|doi y|quen)|ai la khach|ai mua"),
@@ -95,7 +95,7 @@ RULES: list[tuple[str, str]] = [
     ("+unsold_items", r"(mat hang|hang|mon|san pham|thuoc) (bi )?e\b|\be han\b|\be ca\b|khong ban (ra |duoc )|ban hong|ban khong duoc|chua ban duoc|khong co don nao"),
     ("+delivery", r"dot giao|dot hang|cho giao|cho di|luot giao|chua giao|da giao"),
     ("day_threshold_count", r"(bao nhieu|may) ngay .{0,40}(tu|tro len|dat|tren|duoi)"),
-    ("daily_max", r"(ngay|hom|thang|tuan|gio) nao|dat khach nhat|gio cao diem|thu may"),
+    ("daily_max", r"(ngay|hom|thang|tuan|gio) (nao|mo)\b|dat khach nhat|gio cao diem|(?<!doanh )\bthu may\b"),
     ("daily_avg", r"(trung binh|binh quan) moi (ngay|thu|chu nhat)|moi ngay (trung binh|binh quan)"),
     ("avg_per_order", r"(trung binh|binh quan|gia tri) .{0,25}(don|bill|hoa don|phieu)"),
     ("revenue_by_shift", r"\bca (sang|chieu|toi)\b|bao cao ca"),
