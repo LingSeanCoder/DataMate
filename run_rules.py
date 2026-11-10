@@ -481,10 +481,15 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(cnt, "number")
 
     # Khách theo đường/địa chỉ: shop không ghi địa chỉ -> unanswerable (§7).
-    if intent == "+customer_address" or re.search(r"khach (o |nha o )?duong [a-z]", qn):
+    if intent == "+customer_address" or re.search(r"khach (hang )?(o |nha o )?duong [a-z]", qn):
         has_addr = conn.execute("SELECT 1 FROM _meta_columns WHERE column_name LIKE '%dia%chi%' OR column_name LIKE '%addr%' "
                                 "OR column_name LIKE '%duong%' LIMIT 1").fetchone()
         return ABSTAIN if has_addr else {"type": "unanswerable", "reason": "shop không ghi địa chỉ khách"}
+
+    # Hỏi theo nhóm khách mà shop không ghi nhóm khách -> unanswerable (§7).
+    if re.search(r"khach (hang )?(nhom|thuoc nhom) |nhom khach", qn) and not ent.get("customer_group") and \
+            not conn.execute("SELECT 1 FROM std_customers WHERE customer_group IS NOT NULL AND customer_group != '' LIMIT 1").fetchone():
+        return {"type": "unanswerable", "reason": "shop không ghi nhóm khách"}
 
     # Lãi ròng = lãi gộp − chi phí.
     if main and re.search(r"(lai|loi) (rong|that)|loi nhuan rong|tru (het )?chi phi", qn):

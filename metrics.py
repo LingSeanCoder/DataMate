@@ -435,6 +435,8 @@ def purchase_avg_price(conn, product: str, start, end, as_of) -> float:
                         (product, start or "0000", min(end or as_of, as_of))).fetchone()
     if not q:
         raise NoData("không có phiếu nhập")
+    if t is None:
+        raise NoData("phiếu nhập không ghi giá")
     return t / q
 
 
@@ -549,6 +551,9 @@ def stock_out_count(conn, day: str, as_of) -> int:
 
 def stock_value(conn, day: str, as_of) -> float:
     """§5: Σ tồn (>0) × giá vốn một đơn vị cơ bản trong danh mục."""
+    if not any(conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (t,)).fetchone()
+               for t in ("std_stock", "std_stock_ledger", "std_purchases", "std_lots")):
+        raise NoData("shop không có dữ liệu kho")
     total = 0.0
     for name, cost in conn.execute("SELECT product_name, cost_price FROM std_products WHERE cost_price IS NOT NULL"):
         try:

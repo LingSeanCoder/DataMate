@@ -58,10 +58,10 @@ UNIT = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao|thung|vi|tuyp|kg|m3|ph
 
 RULES: list[tuple[str, str]] = [
     ("unanswerable", r"(than thien|nhiet tinh|chu dao|le phep|tan tam|(?<!trong )(?<!ton )kho tinh|trung thuc|dang tin cay|uy tin|de thuong|"
-                     r"lanh nghe|vui ve|dep trai|xinh) |(ngon|chat luong|dep) nhat|co nen |nen (chon|mua|dung|nhap)|"
-                     r"(ba bau|tre em|tre so sinh|cho con bu|phu nu co thai).*(dung|uong|an)|\blieu dung|\buong may|"
-                     r"\b(huy|tra (lai|mon|hang))\b.{0,40}\bvi\b|ly do (huy|tra)|tac dung phu|chua (benh|dau)|thoi tiet|gioi tinh|khach (nu|nam)\b|\bdia chi|\bly do|\bvi sao|\btai sao"),
-    ("+customer_address", r"khach (o|duong|tai|khu|phuong|quan) [a-z]"),
+                     r"lanh nghe|vui ve|dep trai|xinh|quy men|tay nghe|kheo tay|duoc long|duoc yeu thich) |\bkhen\b|tay nghe (cao|gioi)|(ngon|chat luong|dep) nhat|co nen |nen (chon|mua|dung|nhap)|"
+                     r"(ba bau|tre em|tre so sinh|cho con bu|phu nu co thai).*(dung|uong|an)|\blieu dung|\buong may|\bmoi lan (uong )?may (vien|goi|ml)|nen uong|"
+                     r"\b(huy|tra (lai|mon|hang))\b.{0,40}\bvi\b|ly do (huy|tra)|tac dung phu|chua (benh|dau)|thoi tiet|gioi tinh|khach (nu|nam)\b|\bdia chi|(?<!theo )\bly do\b|\bvi sao|\btai sao"),
+    ("+customer_address", r"khach (hang )?(o|nha o|duong|tai|khu|phuong|quan) (duong )?[a-z]"),
     ("installment", r"tra gop|ky gop|(?<!dong )(?<!loi )(?<!lai )\bgop\b|cham gop"),
     ("tradein", r"\bmay cu\b|\bthu cu\b|tro gia|thu lai may|doi may cu"),
     ("+customer_pays", r"khach phai tra"),
