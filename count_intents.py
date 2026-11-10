@@ -36,6 +36,7 @@ TEEN = [
     (r"≥|>=", " tu "), (r"≤|<=", " den "),
     (r"[^\w\s/%.,:+-]", " "),  # emoji, ký hiệu lạ
     (r"\b[a-z]+\b", _telex),
+    (r"\b(ngay|thang|tuan|bua|hang|mon|khach|san pham|gio|ca)(nao|mo|nhat)\b", r"\1 \2"),  # gõ dính: "ngàynào"
     (r"\b(bao nhiu|bnhiu|bnhieu|bao nhieeu|bnh|bn|nhiu)\b", "bao nhieu"),
     (r"(?<!bao )\bnhieu\b(?! (nhat|hon|don|lan|ngay|khach|tien|ly|loai|nguoi))", "bao nhieu"),
     (r"\b(dc|đc|duoj|duowc|duocj|dduoc)\b", "duoc"), (r"\b(jum|gium|dum)\b", "giup"),

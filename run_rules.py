@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import metrics as M
 from count_intents import classify, norm as cnorm
+from data_loader import strip_diacritics
 from entity import extract_entities
 from formatter import FormatError, shape_answer
 from time_resolver import resolve
@@ -25,8 +26,14 @@ ABSTAIN = {"type": "abstain"}
 UNIT_RX = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao(?! nhieu)|thung|vi|tuyp|kg|m3|phan(?! tram)|to|suat|cay|cuon|tam|thanh|binh|bich|chiec|met|xe|tan|may|lo|ong|mieng|bo|m)"
 
 
-def _filters(ent: dict, qn: str) -> dict:
+def _filters(ent: dict, qn: str, conn=None) -> dict:
     F = {k: ent.get(k) for k in ("category", "brand", "channel", "payment", "employee", "customer_group")}
+    m = re.search(r"\b(?:dien thoai|dt|may) (cu|moi)\b", qn)
+    if m and not F["category"] and not ent.get("product") and conn is not None:  # tiệm điện thoại: "điện thoại cũ" = nhóm "máy cũ"
+        cat = [c for (c,) in conn.execute("SELECT DISTINCT category FROM std_lines WHERE category IS NOT NULL")
+               if strip_diacritics(c).lower() == f"may {m.group(1)}"]
+        if cat:
+            F["category"] = cat
     F["size"] = ent.get("size") if ent.get("size") and not re.fullmatch(r"[ML]", ent["size"][0]) else None
     if ent.get("size") and re.fullmatch(r"[ML]", ent["size"][0]):  # cà phê: size = tên món kết thúc (M)/(L)
         F["size_suffix"] = ent["size"][0]
@@ -114,8 +121,8 @@ def answer(q: dict, db: str) -> dict:
         return {"type": "unanswerable", "reason": "câu định tính / dữ liệu không ghi"}
     pers = [p for p in resolve(text, as_of, os.environ.get("DATAMATE_CALENDAR", "calendar.csv")) if p["kind"] not in ("event_window",)]
     ent = extract_entities(text, db)
-    F = _filters(ent, qn)
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    F = _filters(ent, qn, conn)
     try:
         if F.get("size_suffix"):
             F["product"] = _size_products(conn, F.pop("size_suffix"), F)

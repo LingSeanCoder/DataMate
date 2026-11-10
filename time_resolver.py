@@ -22,7 +22,7 @@ from count_intents import norm as _base_norm
 
 _EXTRA = [
     (r"\b(bua nay|hnay|hum nay)\b", "hom nay"), (r"\b(hqua|bua qua|hum qua)\b", "hom qua"),
-    (r"\b(trc|trk)\b", "truoc"), (r"\bth\b(?= (truoc|nay|\d))", "thang"), (r"\bvs\b", "voi"),
+    (r"\b(trc|trk)\b", "truoc"), (r"\bth\b(?= (truoc|nay|\d))", "thang"), (r"\bvs\b", "voi"), (r"\bq ?([1-4])(?=/\d{4}| nam \d{4}|\b)", r"quy \1"),
     (r"\b(rui|roi)\b", "roi"), (r"\bnawm\b", "nam"), (r"\bthangs\b", "thang"), (r"\bcungf\b", "cung"),
 ]
 
@@ -99,6 +99,9 @@ def _mk_date(dd: str, mm: str, yy: str | None, as_of: date) -> date | None:
 def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> list[dict]:
     today = _d(as_of[:10])
     q = norm(question)
+    # "tháng 5, 6, 7/2025", "tháng 5, 6 và 7 năm 2025" -> "tháng 5/2025, tháng 6/2025, tháng 7/2025"
+    q = re.sub(r"thang ((?:\d{1,2}\s*(?:,|va)\s*)+)(\d{1,2})(/| nam |-)(\d{4})",
+               lambda m: ", ".join(f"thang {x}/{m.group(4)}" for x in re.findall(r"\d{1,2}", m.group(1)) + [m.group(2)]), q)
     used = [False] * len(q)
     found: list[tuple[int, dict]] = []
 
