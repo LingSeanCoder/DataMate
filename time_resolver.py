@@ -201,7 +201,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
 
     # 5) Tháng này / từ đầu tháng này đến hết hôm nay; cùng kỳ tháng trước (§2).
     has_this_month = re.search(r"thang nay", q) is not None
-    for m in re.finditer(r"(?:tu dau thang nay|thang nay|tu dau thang(?= (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay))(?: (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay)?", q):
+    for m in re.finditer(r"(?:tu dau thang nay|thang nay|(?:tu dau thang|tu (?:ngay )?mung 1)(?= (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay))(?: (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay)?", q):
         if not take(m):
             continue
         add(m.start(), _period(today.replace(day=1), today, "month_to_date", "tháng này"))
@@ -321,6 +321,10 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
     # "tới bữa ni ..., tính cả kỳ hạn đúng bữa ni": ngày lẻ trùng mốc "đến hết" là cùng một mốc
     upto_ends = {p["end"] for p in out if p["kind"] == "upto"}
     out = [p for p in out if not (p["kind"] == "day" and p["end"] in upto_ends)]
+    # "7 ngày qua tính cả hôm nay", "tuần này tính tới hôm nay": hôm nay chỉ là mốc cuối của kỳ kia, không phải kỳ riêng
+    if re.search(r"(tinh|ke) ca hom nay|tinh luon hom nay|(tinh )?(toi|den) (het )?hom nay", q):
+        span_ends = {p["end"] for p in out if p["start"] and p["kind"] not in ("day", "upto") and not p.get("rel")}
+        out = [p for p in out if not (p["kind"] in ("day", "upto") and p["end"] in span_ends)]
     # Kỳ so sánh tương đối ("tháng trước đó", "cùng kỳ năm trước") neo theo kỳ được hỏi đầu tiên.
     anchor = next((p for p in out if not p.get("rel") and p["start"] and p["kind"] != "upto"), None)
     for p in out:

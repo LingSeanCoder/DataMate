@@ -35,7 +35,7 @@ def _filters(ent: dict, qn: str) -> dict:
     if ent.get("product"):
         F["product"] = ent["product"]["name"]
         F["category"] = F["brand"] = F["size"] = None  # đã có tên hàng cụ thể
-    if ent.get("hoat_chat"):
+    if ent.get("hoat_chat") and not ent.get("product"):  # tên hàng đã cụ thể hơn hoạt chất (hàng không phải thuốc không có hoạt chất)
         F["ingredient"] = ent["hoat_chat"]
     if re.search(r"(khong|hong) (can )?(ke )?don|khong ke don|tru (cac )?(thuoc )?ke don|ngoai (thuoc )?ke don", qn):
         F["prescription"] = False
@@ -355,7 +355,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
             return shape_answer(names, "list") if plural else shape_answer(names[0], "string")
 
     # Giao hàng nhiều đợt.
-    if main and _has_rows(conn, "std_deliveries") and re.search(r"dot (giao|hang)|cho di|da giao|da cho|xe .{0,10}(giao|cho)|luot giao", qn):
+    if main and _has_rows(conn, "std_deliveries") and re.search(r"dot (giao|hang)|cho di|da giao|da (duoc )?cho|\d+ dot tro len|xe .{0,10}(giao|cho)|luot giao", qn):
         mo = next((p for p in main if p["kind"] in ("month", "quarter", "range", "month_to_date")), main[0])
         if re.search(r"don (dat|ban)|khach dat", qn):  # "các đơn đặt tháng X, tới hôm nay đã chở ..."
             m2 = re.search(r"(\d+) dot tro len|tu (\d+) dot", qn)

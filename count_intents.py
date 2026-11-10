@@ -93,7 +93,7 @@ RULES: list[tuple[str, str]] = [
     ("count_customers", r"(bao nhieu|may|so|tong) khach"),
     ("product_in_n_orders", r"xuat hien .{0,30}\d+ don|uu chuong nhat|co mat trong"),
     ("+unsold_items", r"(mat hang|hang|mon|san pham|thuoc) (bi )?e\b|\be han\b|\be ca\b|khong ban (ra |duoc )|ban hong|ban khong duoc|chua ban duoc|khong co don nao"),
-    ("+delivery", r"dot giao|dot hang|cho giao|cho di|luot giao|chua giao|da giao"),
+    ("+delivery", r"dot giao|dot hang|cho giao|cho di|luot giao|chua giao|da giao|da (duoc )?cho\b|\d+ dot (giao|tro len)\b"),
     ("day_threshold_count", r"(bao nhieu|may) ngay .{0,40}(tu|tro len|dat|tren|duoi)"),
     ("daily_max", r"(ngay|hom|thang|tuan|gio) (nao|mo)\b|dat khach nhat|gio cao diem|(?<!doanh )\bthu may\b"),
     ("daily_avg", r"(trung binh|binh quan) moi (ngay|thu|chu nhat)|moi ngay (trung binh|binh quan)"),

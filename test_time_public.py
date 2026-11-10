@@ -21,6 +21,12 @@ CASES = [
      [("2026-06-01", "2026-06-13"), ("2026-05-01", "2026-05-13")]),
     ("q_ad782d8acb44", "2025-08-14", "Doanh thu tu dau thang den het hom nay so voi cung ky thang truoc chenh bao nhieu phan tram, tang hay giam?",
      [("2025-08-01", "2025-08-14"), ("2025-07-01", "2025-07-14")]),
+    ("q_9142ba5ec94a", "2025-08-08", "xem jup mik, dthu shop mk tu mung 1 toi het hom nay so vs cung ky thang trc cao hay thap hon bn %",
+     [("2025-08-01", "2025-08-08"), ("2025-07-01", "2025-07-08")]),
+    ("q_27b5996a5f4c", "2025-10-09", "7 ngay qua tinh ca hom nay ban duoc may don?", [("2025-10-03", "2025-10-09")]),
+    ("q_c28a03d7a959", "2025-06-23", "Tính luôn hôm nay thì 7 ngày gần nhất quán bán ra được bao nhiêu ly z?", [("2025-06-17", "2025-06-23")]),
+    ("q_bff16856342f", "2026-05-08", "Tuần này tính tới hôm nay doanh thu cửa hàng là bao nhiêu?", [("2026-05-04", "2026-05-08")]),
+    ("q_31dad3219917", "2026-02-20", "Năm nay tính tới hôm nay bán được tổng cộng bao nhiêu tiền?", [("2026-01-01", "2026-02-20")]),
     ("q_1fc8004b6900", "2026-06-30", "Th này sốp bán ra bnhiu lon sữa bột số 4 z, gộp hết mọi hãng?", [("2026-06-01", "2026-06-30")]),
     ("q_8818447349a6", "2026-09-19", "Th này đơn bán qua Zalo OA dthu bnhiu, còn đơn bán tại quầy bnhiu?", [("2026-09-01", "2026-09-19")]),
     ("q_86198c3c128b", "2025-07-20", "Tuần này 5 mặt hàng nào bán chạy nhất?", [("2025-07-14", "2025-07-20")]),  # CN
