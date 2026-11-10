@@ -1,18 +1,20 @@
-# HANDOFF — DataMate (Zalo AI Challenge 2026) — cập nhật 2026-11-10
+# HANDOFF — DataMate (Zalo AI Challenge 2026) — cập nhật 2026-11-10 (tối)
 
 **Goal:** trả lời câu hỏi số liệu bán hàng theo rulebook; nộp Docker (offline, ≤15B, 2×RTX 5090, ≤6h) **trước 16/11/2026**. Làm theo plan v3, xong mỗi phase: báo cáo (Tasks / Verify / Files / Blockers), commit + push `main` (người dùng đã cho phép), rồi HỎI trước khi sang phase sau. Trả lời tiếng Việt. Chi tiết lịch sử: `tasks/HANDOFF.md`.
 
-**Done (đã push, commit cuối `ef0a021`):**
+**Done (đã push, commit cuối `2fcaae6` + commit handoff này):**
 - Phase 0–3: tầng std_* (`std_layer.py`, `std_extra.py`), `time_resolver.py`, `entity.py`, `metrics.py`, router regex `run_rules.py`.
 - Phase 4: `main.py` = luật trước, chỉ câu bỏ trống mới gọi LLM (`agent.py`, `std_only=True`); `--no-llm`; build gọi luôn `std_extra`; `rulebook.md` = bản public (train → `rulebook_train.md`), main ưu tiên `<data-root>/../rulebook.md`.
 - Chấm tay 100 câu public trên bảng thô (file chỉ ở máy, gitignore: `tasks/public_check_50.md`): đúng 84% / 88% TRƯỚC sửa → độ đúng public thật ~84–88% (train 98%). Đã sửa 14 lỗi tìm được.
 - Phase 5 unanswerable: train 70/70 (+ luật tổng quát: 'ai/nào … X nhất' mà X không đo được → định tính; không phụ thuộc danh sách từ train), 0 gắn nhầm. **Train 2961/3000, điểm 2934; public 992/1000 có đáp án.**
+- Phase 7 (bản chỉ-luật): `Dockerfile` (python:3.11-slim) + `run.sh`: mount bộ đề nguyên vào `/data` (questions.jsonl, data/, rulebook.md, calendar.csv) → `/result/submission.jsonl`, log `/result/logs/`. Thử `--network=none` trên 1000 câu public: 6,2 phút, trùng khớp 1000/1000 với chạy ngoài Docker; bản `linux/amd64` build + chạy được. README đã cập nhật phần Docker. Hướng dẫn Colab cho thành viên: `COLAB.md`.
 
-**In progress — Phase 6:** đã có `colab_phase6.ipynb` (llama.cpp server CUDA + Qwen2.5-Coder-14B Q4_K_M; build DB; chạy chỉ-luật và có-LLM trên train/public; báo cáo LLM trên câu luật bỏ trống so với gold, thời gian, tính tất định 2 lần chạy). Đã thử nhánh LLM end-to-end bằng LLM giả ở máy (8 câu đi LLM, chạy thông). Agent gửi seed=42; main ưu tiên `calendar.csv` đi kèm bộ đề. **Đang chờ người dùng chạy notebook trên Colab** và gửi lại `MyDrive/DATAMATE/phase6_out/` hoặc bảng in ở ô cuối.
+**In progress — Phase 6 (chờ Tài chạy Colab):** đã có `colab_phase6.ipynb` (llama.cpp server CUDA + Qwen2.5-Coder-14B Q4_K_M; build DB; chạy chỉ-luật và có-LLM trên train/public; báo cáo LLM trên câu luật bỏ trống so với gold, thời gian, tính tất định 2 lần chạy). Đã thử nhánh LLM end-to-end bằng LLM giả ở máy (8 câu đi LLM, chạy thông). Agent gửi seed=42; main ưu tiên `calendar.csv` đi kèm bộ đề. **Đang chờ thành viên (Tài) chạy notebook theo `COLAB.md`** và gửi lại `MyDrive/DATAMATE/phase6_out/` hoặc bảng in ở ô cuối.
 
 **Next steps:**
 1. Phase 6: đọc kết quả notebook → LLM chỉ được bật nếu điểm LLM thêm trên train > 0 (đúng > sai) và 2 lần chạy public giống nhau; nếu không thì nộp `--no-llm`. Chấm tay các câu public đi LLM (khoảng 8 câu).
-2. Phase 7: ĐÃ có image chỉ-luật (`Dockerfile` + `run.sh`, mount bộ đề vào `/data`, kết quả `/result/submission.jsonl`); đã thử `--network=none` trên public: 1000/1000 trùng khớp, 6,2 phút; bản amd64 build + chạy được. CÒN: hỏi quy định nộp (đường dẫn mount, cách nộp image) và nếu Phase 6 bật LLM thì làm image CUDA (llama-server build sm_120 cho RTX 5090 + model GGUF trong image).
+2. Phase 7 còn lại: (a) khớp quy định nộp của BTC (đường dẫn mount input/output, tên file, cách nộp image: registry hay .tar) — chỉ cần sửa `run.sh`; (b) nếu Phase 6 bật LLM: image CUDA 12.8+ (nvidia/cuda), build llama-server với `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120` cho RTX 5090, chép model GGUF vào image, `run.sh` bật server rồi chạy `main.py` không `--no-llm` (`USE_LLM=1`); không thử được trên Mac.
+3. Trước nộp: build `--platform linux/amd64`, chạy `--network=none` trên public, kiểm 1000 dòng.
 
 **Decisions:** không làm router LLM (luật phủ 99% public; LLM chỉ là fallback, đo ở Phase 6). Thứ tự phase 5→6→7 theo ý người dùng (tôi từng đề xuất Docker trước vì hạn gần). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Shop không ghi loại thông tin → unanswerable.
 
@@ -27,4 +29,4 @@
 ```
 **Lưu ý môi trường:** máy MacBook Air M3 16GB không quạt, không có llama-server/model → LLM chỉ chạy được trên Colab. Không chạy song song nhiều lệnh build. Repo GitHub là PUBLIC: không commit đáp án public test, đường dẫn máy, SĐT.
 
-**Open questions:** đồng ý chuẩn bị notebook Colab + script đo cho Phase 6 chưa?
+**Open questions:** (1) quy định nộp Docker của BTC (mount path, output, cách nộp)? (2) kết quả Colab Phase 6 của Tài?
