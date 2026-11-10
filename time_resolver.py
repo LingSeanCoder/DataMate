@@ -286,9 +286,11 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
         mo = int(m.group(1))
         if not 1 <= mo <= 12:
             continue
-        y = int(m.group(2)) if m.group(2) else _year_for(mo, today)
+        # "tháng 3, tháng 4, tháng 5 năm 2025": tháng không ghi năm mượn năm của tháng cuối danh sách
+        shared = re.match(r"(?:\s*,?\s*(?:va\s+)?thang \d{1,2}(?![\d/]))*\s*,?\s*(?:va\s+)?thang \d{1,2}(?:/| nam |-)(\d{4})", q[m.end():])
+        y = int(m.group(2)) if m.group(2) else int(shared.group(1)) if shared else _year_for(mo, today)
         add(m.start(), _period(date(y, mo, 1), _month_end(y, mo), "month", f"tháng {mo}/{y}",
-                               1.0 if m.group(2) else 0.9))
+                               1.0 if m.group(2) or shared else 0.9))
 
     # 11b) Tháng viết trơn (public test): "6/2025", "6-2025", "8/26" (MM/YY khi YY > 12, nên không lẫn ngày dd/mm).
     for m in re.finditer(r"(?<![\d/.-])(\d{1,2})[/-](\d{4}|\d{2})(?![\d/.-])", q):

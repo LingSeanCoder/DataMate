@@ -21,7 +21,7 @@ from formatter import FormatError, shape_answer
 from time_resolver import resolve
 
 ABSTAIN = {"type": "abstain"}
-UNIT_RX = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao|thung|vi|tuyp|kg|m3|phan(?! tram)|to|suat|cay|cuon|tam|thanh|binh|bich|chiec|met|xe|tan)"
+UNIT_RX = r"(ly|dia|noi|cuc|bo|chai|hop|goi|vien|cai|lon|bao(?! nhieu)|thung|vi|tuyp|kg|m3|phan(?! tram)|to|suat|cay|cuon|tam|thanh|binh|bich|chiec|met|xe|tan|may|lo|ong|mieng|bo|m)"
 
 
 def _filters(ent: dict, qn: str) -> dict:
@@ -43,13 +43,17 @@ def _filters(ent: dict, qn: str) -> dict:
     m = re.search(r"\bca (sang|chieu)\b", qn)
     if m:
         F["shift"] = m.group(1)
-    if ent.get("unit") and not ent.get("product"):  # có tên hàng thì đơn vị chỉ là cách đếm của hàng đó
-        F["unit"] = ent["unit"]
+    if not ent.get("product"):  # có tên hàng thì đơn vị chỉ là cách đếm của hàng đó
+        mu = re.search(r"\b(?:bao nhieu|may|so|tong so|tong cong) " + UNIT_RX + r"\b", qn)  # câu đã chuẩn hoá teencode
+        F["unit"] = ent.get("unit") or (mu.group(1) if mu and mu.group(1) != "may" else None)
     m = re.search(r"tinh theo " + UNIT_RX + r"\b", qn)
     if m and not ent.get("product"):
         F["unit"] = m.group(1)
     if ent.get("customer"):
         F["customer_name"] = ent["customer"]
+    # "không kể phụ kiện", "trừ nhóm X": nhóm nêu ra là nhóm bị loại
+    if F.get("category") and re.search(r"(khong ke|khong tinh|tru|ngoai) (nhom |cac |hang )?" + re.escape(cnorm(F["category"][0])), qn):
+        F["exclude_category"], F["category"] = F["category"], None
     return F
 
 
@@ -83,6 +87,13 @@ def answer(q: dict, db: str) -> dict:
     qn = cnorm(text)
     intent = classify(text)[0]
     if intent == "unanswerable":
+        if re.search(r"\bvi\b|ly do|vi sao|tai sao", qn):  # hỏi lý do huỷ/trả: chỉ unanswerable khi shop không ghi lý do
+            c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            has_reason = c.execute("SELECT 1 FROM _meta_columns WHERE replace(column_name, '_', '') LIKE '%nguyennhan%' "
+                                   "OR replace(column_name, '_', '') LIKE '%lydo%' LIMIT 1").fetchone()
+            c.close()
+            if has_reason:
+                return ABSTAIN  # shortcut: chưa tính theo lý do; làm khi có câu train/gold dạng này
         return {"type": "unanswerable", "reason": "câu định tính / dữ liệu không ghi"}
     pers = [p for p in resolve(text, as_of) if p["kind"] not in ("event_window",)]
     ent = extract_entities(text, db)
@@ -91,7 +102,17 @@ def answer(q: dict, db: str) -> dict:
     try:
         if F.get("size_suffix"):
             F["product"] = _size_products(conn, F.pop("size_suffix"), F)
+        line = re.match(r"(.+?)\s+\d+\s*GB\b", F["product"]) if isinstance(F.get("product"), str) else None
+        if line and not re.search(r"\d+ ?gb", qn):  # luật public: dòng máy = phần tên trước dung lượng -> mọi biến thể
+            F["product"] = [n for (n,) in conn.execute("SELECT DISTINCT product_name FROM std_lines WHERE product_name LIKE ?",
+                                                      (line.group(1) + " %GB%",))
+                            if re.match(r"(.+?)\s+\d+\s*GB\b", n).group(1) == line.group(1)]
+            ent["product"] = {**ent["product"], "name": F["product"][0]} if F["product"] else ent["product"]
+        if re.search(r"ngay phai tra|\bhan (phai )?tra\b|\bhan thanh toan", qn) and re.search(r"(bao nhieu|may|so) don", qn):
+            return _due_count(conn, qn, as_of, pers)
         return _dispatch(conn, intent, text, qn, as_of, pers, ent, F)
+    except M.Unsure:
+        return ABSTAIN
     except M.NoData as e:
         return {"type": "unanswerable", "reason": str(e)}
     except (sqlite3.Error, FormatError, KeyError, ValueError, TypeError, ZeroDivisionError):
@@ -116,6 +137,22 @@ def _amount(txt: str) -> float | None:
 
 def _clean(F: dict) -> dict:
     return {kk: v for kk, v in F.items() if kk != "customer_name" and v not in (None, [], "")}
+
+
+def _due_count(conn, qn, as_of, pers) -> dict:
+    """Sổ hạn nợ: số đơn (đặt đến hết X, không huỷ) có ngày phải trả muộn hơn X (hoặc đã quá hạn nếu câu hỏi 'quá hạn')."""
+    day = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
+    row = conn.execute("SELECT table_name, column_name FROM _meta_columns WHERE replace(column_name, '_', '') LIKE '%phaitra%' "
+                       "OR replace(column_name, '_', '') LIKE '%hanthanhtoan%' OR replace(column_name, '_', '') LIKE '%hantra%' LIMIT 1").fetchone()
+    if not row:
+        raise M.NoData("shop không ghi hạn trả")
+    t, due = row
+    ids = {o: d for o, d in conn.execute("SELECT order_id, order_date FROM std_orders WHERE status_norm != 'huỷ' AND order_date <= ?", (day,))}
+    cols = [c for (c,) in conn.execute("SELECT column_name FROM _meta_columns WHERE table_name = ?", (t,)) if c != due]
+    oc = max(cols, key=lambda c: sum(str(v) in ids for (v,) in conn.execute(f'SELECT "{c}" FROM "{t}"')))
+    rows = [(str(o), str(d)[:10]) for o, d in conn.execute(f'SELECT "{oc}", "{due}" FROM "{t}"') if str(o) in ids and d]
+    late = re.search(r"qua han|tre han", qn)
+    return shape_answer(sum(1 for o, d in rows if (d < day if late else d > day)), "number")
 
 
 def _customer_key(conn, cust: dict | None) -> str | None:
@@ -333,7 +370,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(M.peak_hour(conn, s0, e0, as_of), "number")
 
     # Mặt hàng nào doanh thu/số lượng cao nhất (kể cả trong một nhóm).
-    if main and re.search(r"\b(mat hang|mon|san pham|hang) nao\b.{0,50}(cao nhat|nhieu nhat|lon nhat)", qn) and \
+    if main and re.search(r"\b(mat hang|mon|san pham|hang) nao\b.{0,50}(cao|nhieu|lon)( \w+)? nhat", qn) and \
             not re.search(r"loi|lai|\bkhach\b", qn) and intent not in ("ranking_qty", "ranking_revenue"):
         intent = "ranking_revenue" if re.search(r"doanh thu|tien", qn) else "ranking_qty"
 

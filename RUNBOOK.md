@@ -14,6 +14,19 @@ data/
 
 ---
 
+## 0. Luồng trả lời (từ Phase 4)
+
+Mỗi câu: `run_rules.answer()` (regex + `time_resolver` + `entity` + `metrics.py` trên bảng `std_*`) trả lời trước;
+chỉ câu luật **bỏ trống** mới gọi LLM (`agent.ask`, chỉ thấy bảng `std_*`). Không có server LLM thì câu đó bỏ trống (0 điểm).
+`rulebook.md` cạnh thư mục `data/` của bộ đề được ưu tiên hơn `rulebook.md` trong repo (repo giữ bản public; bản train: `rulebook_train.md`).
+
+```bash
+# chỉ luật (không cần GPU): build DB + std + trả lời
+python main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl \
+  --db-dir tmp_db_dev --out submission.jsonl --overwrite --workers 4 --no-llm
+# có LLM dự phòng: export LOCAL_LLM_BASE_URL=http://localhost:8000/v1 rồi bỏ --no-llm
+```
+
 ## 1. Cài đặt
 
 ```powershell
@@ -118,6 +131,7 @@ python agent.py "Doanh thu tháng 6/2025 là bao nhiêu?" `
 | `--no-review-empty` | Không rà lại khi SQL trả 0 dòng |
 | `--show-sql` | In SQL từng câu |
 | `--full-rulebook` | Nhồi toàn bộ rulebook (cần tier trả phí) |
+| `--no-llm` | Chỉ chạy luật + metrics; câu luật không chắc thì bỏ trống |
 | `--verbose` | Log chi tiết |
 
 ---

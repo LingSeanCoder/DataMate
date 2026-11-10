@@ -97,7 +97,7 @@ RULES: list[tuple[str, str]] = [
     ("day_threshold_count", r"(bao nhieu|may) ngay .{0,40}(tu|tro len|dat|tren|duoi)"),
     ("daily_max", r"(ngay|hom|thang|tuan|gio) (nao|mo)\b|dat khach nhat|gio cao diem|(?<!doanh )\bthu may\b"),
     ("daily_avg", r"(trung binh|binh quan) moi (ngay|thu|chu nhat)|moi ngay (trung binh|binh quan)"),
-    ("avg_per_order", r"(trung binh|binh quan|gia tri) .{0,25}(don|bill|hoa don|phieu)"),
+    ("avg_per_order", r"(trung binh|binh quan|gia tri) .{0,25}(don|bill|hoa don|phieu)|moi (don|bill|hoa don) (trung binh|binh quan)"),
     ("revenue_by_shift", r"\bca (sang|chieu|toi)\b|bao cao ca"),
     ("revenue_by_payment", r"tien mat|chuyen khoan|\bcod\b|vi dien tu|quet the|hinh thuc thanh toan|tra bang|tien tuoi|momo"),
     ("revenue_by_channel", r"tai quay|zalo|dien thoai|online|shopee|lazada|tiktok|\bsan\b(?! pham)|kenh|grab|giao di|facebook|web"),

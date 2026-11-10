@@ -6,11 +6,11 @@ Cập nhật: 2026-11-10. Đọc file này đầu session mới rồi làm tiế
 - Model: Qwen2.5-Coder-14B-Instruct GGUF Q4_K_M qua llama-server (≤15B tham số, offline, Docker `--network=none`, 2×RTX 5090, ≤6h). Dev chạy trên Google Colab. Máy local là macOS (không GPU).
 - Hạn nộp Docker: **16/11/2026**. Private test 20–23/11.
 - Điểm: đúng +1, sai −1, abstain 0. Deterministic: temperature=0, seed=42. Cấm logic theo question id / business id.
-- Dữ liệu: `../DATASET/train/{data,questions.jsonl,answers.jsonl,rulebook.md}` (30 biz 101–130, 3000 câu, CÓ gold — cũng ở `/Users/nguyenbao/Downloads/answers.jsonl`), `../DATASET/public_test/{data,questions.jsonl,rulebook.md}` (14 biz dev_001–dev_014, **1000 câu**, KHÔNG gold).
+- Dữ liệu: `../DATASET/train/{data,questions.jsonl,answers.jsonl,rulebook.md}` (30 biz 101–130, 3000 câu, CÓ gold — cũng ở `<đường dẫn answers.jsonl gold train>`), `../DATASET/public_test/{data,questions.jsonl,rulebook.md}` (14 biz dev_001–dev_014, **1000 câu**, KHÔNG gold).
 - **rulebook public khác train** (thêm luật Mẹ&bé, Sửa xe, Điện thoại, khách sộp/trung thành/đổi ý, giờ cao điểm, topping, báo cáo ca...). `DataMate/rulebook.md` hiện là bản TRAIN → Phase 4 phải đổi sang bản public (= nội dung `datamate.md`).
 
 ## Môi trường local
-- Repo: `/Users/nguyenbao/Documents/ZALOAI/DataMate`, venv `.venv/` (python 3.9). DB: `tmp_db/` (train), `tmp_db_dev/` (dev) — đều gitignore.
+- Repo: `<repo>`, venv `.venv/` (python 3.9). DB: `tmp_db/` (train), `tmp_db_dev/` (dev) — đều gitignore.
 - Commit cuối trên `origin/main`: `c529a1a`. **Mọi việc từ plan v2/v3 sau đó CHƯA commit** (người dùng chưa trả lời câu hỏi commit).
 - KHÔNG chạy song song build/std với nhau (đã từng làm hỏng DB). Chạy chuỗi tuần tự, ví dụ `/tmp/rebuild_all.sh` (nội dung bên dưới).
 
@@ -20,7 +20,7 @@ Cập nhật: 2026-11-10. Đọc file này đầu session mới rồi làm tiế
 .venv/bin/python -W ignore inventory.py --data-root ../DATASET/train/data --db-dir tmp_db
 for f in tmp_db_dev/*.db tmp_db/*.db; do .venv/bin/python -W ignore std_extra.py $f >/dev/null; done   # bảng std phụ
 .venv/bin/python -W ignore validate_std.py --db-dir tmp_db_dev      # đối soát (kỳ vọng 14/14), tmp_db: 30/30
-.venv/bin/python check_std.py --answers /Users/nguyenbao/Downloads/answers.jsonl   # kỳ vọng 205/205
+.venv/bin/python check_std.py --answers <đường dẫn answers.jsonl gold train>   # kỳ vọng 205/205
 .venv/bin/python count_intents.py --questions ../DATASET/public_test/questions.jsonl [--show <intent>]
 .venv/bin/python test_time_resolver.py       # 37/37 (chưa có teencode public)
 .venv/bin/python eval.py --sub <submission.jsonl> --answers <answers.jsonl>
@@ -53,8 +53,11 @@ Build đầy đủ 2 bộ + std_extra + đối soát ≈ 20–25 phút.
   - Unanswerable (§7, gold train xác nhận): lý do huỷ/trả, địa chỉ khách khi shop không ghi, hỏi theo kênh/thanh toán/khách khi shop không ghi.
   - Sửa std: hệ số quy đổi trống → 1 (dev_013 mất qty_base), cột "Bớt" cả đơn, bảng lô ưu tiên số lượng quy đổi, nhóm khách nhận theo giá trị (cả ở bảng đơn), `std_deliveries`.
   - Lưu ý: rulebook public chưa thay vào repo (Phase 4); luật public đã cài thẳng trong metrics (chưa kiểm được vì public không có gold).
-- **Việc tiếp theo khi bắt đầu session mới: Phase 4** (người dùng đã duyệt).
-- Phase 4: router LLM (JSON intent+slots) + tích hợp `agent.ask()`; fallback text-to-SQL chỉ dùng std_*; đổi rulebook public; `std_extra` gắn vào build.
+- **Phase 4 ✅ (phần tích hợp) — đang chờ GATE 4, CHƯA commit** (2026-11-11). `main.py`: mỗi câu `run_rules.answer` trước, chỉ câu bỏ trống mới gọi `agent.ask` (khởi tạo lười, `std_only=True`: LLM chỉ thấy bảng std_* + ghi chú `STD_GUIDE`); `--no-llm`. `build_database` gọi `std_extra.build_extra` sau `build_std`. `rulebook.md` = bản public (bản train → `rulebook_train.md`); `main.py` ưu tiên `<data-root>/../rulebook.md`. Sửa đua luồng cache `base_units`.
+  - Verify: train qua `main.py --no-llm` 2950/3000 (= run_rules, điểm 2921, 2.9 phút); public build từ dữ liệu thô + trả lời 6.4 phút trên Mac CPU, kết quả giống hệt run_rules (997/1000 có đáp án).
+  - **Chấm tay public** (`tasks/public_check_50.md`, tính lại trên bảng thô): mẫu 1 (seed 2026) đúng 42/50 trước sửa; mẫu 2 (seed 7, câu mới) đúng 44/50 trước sửa → ước lượng độ đúng public thật ~84–88% (không phải 98% như train). Sau sửa cả 2 mẫu đúng hết (mẫu 2 có 1 bỏ trống) — 100 câu này không còn dùng để đo nữa; muốn đo tiếp phải lấy mẫu mới.
+  - Sửa sau chấm tay: `parse_number` không đọc "1 thùng = 4 bịch" thành 1 (cột quy đổi dạng chữ); README câu văn "A, B bán theo bó, 1 bó = 10 cây"; câu "mặt hàng nào … nhiều tiền nhất", "mỗi đơn trung bình", "tháng 3, tháng 4, tháng 5 năm 2025" (mượn năm), "mấy máy, không kể phụ kiện" (loại nhóm), lọc đơn vị khi shop không ghi đơn vị, đơn vị từ câu đã chuẩn hoá teencode, "bao nhiêu" ≠ đơn vị "bao", dòng điều chỉnh (Dùng N điểm) không phải mặt hàng, dòng máy = phần tên trước GB, nợ khi không có phiếu thu (sổ nợ + sổ góp; chỉ ảnh chụp → bỏ trống), đếm đơn theo ngày phải trả (sổ hạn nợ). Đã build lại toàn bộ DB. Train vẫn 2950/3000; public 992/1000 có đáp án, 62 đáp án public thay đổi.
+  - CHƯA làm: router LLM (JSON intent+slots) — đề xuất bỏ (lý do trong báo cáo Gate 4); LLM fallback chưa chạy thật (máy không có llama-server/model) → kiểm ở Phase 6 trên Colab.
 - Phase 5 unanswerable; Phase 6 validation/benchmark Colab; Phase 7 Docker.
 
 ## Ghi chú kỹ thuật quan trọng
@@ -65,10 +68,10 @@ Build đầy đủ 2 bộ + std_extra + đối soát ≈ 20–25 phút.
 
 ## Script chạy lại toàn bộ (`/tmp/rebuild_all.sh` — tạo lại nếu /tmp bị xoá)
 ```bash
-cd /Users/nguyenbao/Documents/ZALOAI/DataMate
+cd <repo>
 .venv/bin/python -W ignore inventory.py --data-root ../DATASET/public_test/data --db-dir tmp_db_dev > /tmp/inv_dev.txt 2>&1
 .venv/bin/python -W ignore inventory.py --data-root ../DATASET/train/data --db-dir tmp_db > /tmp/inv_train.txt 2>&1
 for f in tmp_db_dev/*.db tmp_db/*.db; do .venv/bin/python -W ignore std_extra.py $f > /dev/null 2>>/tmp/extra_err.txt || echo "LỖI $f"; done
 .venv/bin/python -W ignore validate_std.py --db-dir tmp_db_dev; .venv/bin/python -W ignore validate_std.py --db-dir tmp_db | tail -1
-.venv/bin/python check_std.py --answers /Users/nguyenbao/Downloads/answers.jsonl | tail -1
+.venv/bin/python check_std.py --answers <đường dẫn answers.jsonl gold train> | tail -1
 ```

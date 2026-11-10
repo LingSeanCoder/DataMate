@@ -210,7 +210,7 @@ def extract_entities(question: str, db_path: str) -> dict:
             if customer is None or len(name) > len(customer["name"] or ""):
                 customer = {"name": name, "id": cid}
 
-    k = re.search(r"\btop ?(\d+)\b|(?<![\d/.-])\b(\d{1,2}) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|ngay|hang|loai)\b", qn)
+    k = re.search(r"\btop ?(\d+)\b|(?<![\d/.-])\b(\d{1,2}) (?:mat hang|mon|san pham|sp|thuoc|khach|nhan vien|hang|loai)\b", qn)
     unit = re.search(r"\b(?:bao nhieu|may|so|total may|tong so) (" + "|".join(UNITS) + r")\b(?! tram)", qn)
     size = re.search(r"\bsize (m|l)\b", _norm_keep_paren(question))
     # câu có dấu thì khớp giữ dấu, câu gõ không dấu thì khớp bỏ dấu

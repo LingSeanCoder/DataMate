@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from agent import DataMateAgent, TokenRateLimiter, DEFAULT_MODEL
+from run_rules import answer as rules_answer
 from data_loader import build_database
 
 DEFAULT_QUESTIONS = "questions.jsonl"
@@ -189,31 +190,46 @@ def run_business(
         if readme_file else ""
     )
 
-    try:
-        agent = DataMateAgent(
-            db_path=db_path,
-            readme_text=readme_text,
-            rulebook_path=args.rulebook,
-            calendar_path=args.calendar,
-            model=args.model,
-            max_fix_attempts=args.max_fix,
-            prompt_budget=args.prompt_budget,
-            rate_limiter=limiter,
-            review_empty=not args.no_review_empty,
-            full_rulebook=args.full_rulebook,
-            verbose=args.verbose,
-        )
-    except Exception as exc:  # noqa: BLE001
-        summary["warning"] = f"Khởi tạo agent lỗi: {type(exc).__name__}: {exc}"
-        return summary
+    agent_box: dict = {}
+    agent_lock = threading.Lock()
+
+    def get_agent():
+        """LLM chỉ dùng cho câu luật bỏ trống; khởi tạo lười, lỗi (không có server) thì giữ bỏ trống."""
+        with agent_lock:
+            if "agent" not in agent_box:
+                try:
+                    agent_box["agent"] = DataMateAgent(
+                        db_path=db_path,
+                        readme_text=readme_text,
+                        rulebook_path=args.rulebook,
+                        calendar_path=args.calendar,
+                        model=args.model,
+                        max_fix_attempts=args.max_fix,
+                        prompt_budget=args.prompt_budget,
+                        rate_limiter=limiter,
+                        review_empty=not args.no_review_empty,
+                        full_rulebook=args.full_rulebook,
+                        verbose=args.verbose,
+                        std_only=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    agent_box["agent"] = None
+                    summary["warning"] = f"Khởi tạo agent lỗi (chỉ chạy luật): {type(exc).__name__}: {exc}"
+            return agent_box["agent"]
 
     pending = [q for q in questions if q["id"] not in done_ids]
     summary["skipped"] = len(questions) - len(pending)
 
     def work(item: dict) -> tuple[dict, dict]:
-        answer, debug = agent.ask(
-            item["question"], item["as_of_date"] or None, item["id"]
-        )
+        q = {"question": item["question"], "as_of_date": item["as_of_date"], "business_id": biz_id}
+        answer = rules_answer(q, str(db_path))
+        if answer.get("type") != "abstain" or args.no_llm:
+            return item, {"id": item["id"], **answer}, {"route": "rules"}
+        agent = get_agent()
+        if agent is None:
+            return item, {"id": item["id"], "type": "abstain"}, {"route": "rules", "note": "không có LLM"}
+        answer, debug = agent.ask(item["question"], item["as_of_date"] or None, item["id"])
+        debug["route"] = "llm"
         return item, answer, debug
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
@@ -294,6 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-review-empty", action="store_true",
                    help="Không rà lại khi SQL trả 0 dòng")
     p.add_argument("--show-sql", action="store_true", help="In SQL từng câu")
+    p.add_argument("--no-llm", action="store_true", help="Chỉ chạy luật + metrics, câu luật không chắc thì bỏ trống")
     p.add_argument("--verbose", action="store_true")
     return p
 
@@ -309,6 +326,10 @@ def run_batch(args: argparse.Namespace) -> int:
     if not data_root.is_dir():
         print(f"[LỖI] Không thấy thư mục dữ liệu: {data_root}", file=sys.stderr)
         return 2
+
+    bundled = data_root.parent / "rulebook.md"  # bộ đề kèm rulebook riêng (train/public/private khác nhau)
+    if args.rulebook == "rulebook.md" and bundled.is_file():
+        args.rulebook = str(bundled)
 
     raw = read_jsonl(questions_path)
     questions = [normalise_question(obj, i + 1) for i, obj in enumerate(raw)]

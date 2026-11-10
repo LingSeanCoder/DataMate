@@ -16,3 +16,6 @@ tmp_db/
 .venv/
 
 tmp_db_dev/
+
+# Đáp án public test chấm tay: chỉ giữ ở máy (repo công khai)
+tasks/public_check_50.md

@@ -381,7 +381,7 @@ def customer_key(cid, name) -> str | None:
 
 
 def _strip_phone(x: str) -> str:
-    """'Dương Hùng Trung - 0328 548 455', 'Đặng Hải Nhung (0913885954)' -> tên."""
+    """'Dương Hùng Trung - 0900 000 002', 'Đặng Hải Nhung (0900000003)' -> tên."""
     return re.sub(r"\s*[-–(,]?\s*\(?\+?\d[\d .]{7,}\)?\s*$", "", x).strip()
 
 

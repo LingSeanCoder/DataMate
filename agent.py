@@ -758,6 +758,19 @@ class TableMeta:
 # Agent
 # --------------------------------------------------------------------------
 
+STD_GUIDE = """## Bảng chuẩn std_* (CHỈ dùng các bảng này)
+- std_orders: 1 dòng/đơn. order_date 'YYYY-MM-DD', order_time 'HH:MM:SS', status_norm (hoàn thành|huỷ|trả hàng|đang giao),
+  is_valid=1 khi đơn tính doanh thu (không huỷ, không trả), revenue = doanh thu đơn đã đúng rulebook, customer_key (NULL = khách lẻ),
+  customer_name, pay_method, channel, employee_id.
+- std_lines: dòng hàng, nối std_orders qua order_id. qty_base = số lượng quy về đơn vị cơ bản, line_revenue = thành tiền dòng,
+  line_cost = giá vốn cả dòng, category = nhóm hàng, line_kind ('item' | 'adjustment' = voucher/điểm/ship), is_service_fee.
+- std_products: product_name, category, brand, size, active_ingredient, is_prescription, cost_price, base_unit.
+- std_customers: customer_key, customer_name, customer_group, register_date.
+- Các bảng khác nếu có: std_order_money (amount_due, paid_total), std_payments (paid_date, amount), std_purchases (phiếu nhập),
+  std_stock, std_lots, std_installments, std_tradeins, std_warranties, std_repairs, std_deliveries.
+- Doanh thu: SUM(revenue) FROM std_orders WHERE is_valid=1. Số lượng bán: SUM(qty_base) dòng của đơn is_valid=1."""
+
+
 class DataMateAgent:
     def __init__(
         self,
@@ -774,8 +787,10 @@ class DataMateAgent:
         review_empty: bool = True,
         full_rulebook: bool = False,
         verbose: bool = False,
+        std_only: bool = False,
     ) -> None:
         load_dotenv()
+        self.std_only = std_only
         self.db_path = Path(db_path)
         if not self.db_path.is_file():
             raise FileNotFoundError(f"Không thấy database: {self.db_path}")
@@ -895,10 +910,39 @@ class DataMateAgent:
         finally:
             conn.close()
 
+        if self.std_only:
+            self._use_std_tables()
         self.known_tables = {t.name for t in self.tables}
         self.known_columns = {
             c.name for t in self.tables for c in t.columns
         } | {"_quy_doi"}
+
+    def _use_std_tables(self) -> None:
+        """Chỉ cho LLM thấy các bảng chuẩn std_* (tên cột cố định, đã làm sạch) + ghi chú nghĩa cột."""
+        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+        try:
+            names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'std\\_%' ESCAPE '\\' "
+                                                "ORDER BY name")]
+            if not names:
+                return
+            tables = []
+            for t in names:
+                n = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+                cols = []
+                for _, c, typ, *_ in conn.execute(f'PRAGMA table_info("{t}")'):
+                    nd, lo, hi = conn.execute(f'SELECT COUNT(DISTINCT "{c}"), MIN("{c}"), MAX("{c}") FROM "{t}"').fetchone()
+                    top = [str(r[0]) for r in conn.execute(
+                        f'SELECT "{c}" FROM "{t}" WHERE "{c}" IS NOT NULL GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 12')] \
+                        if nd and nd <= 30 else []
+                    kind = "number" if typ.upper() in ("REAL", "INTEGER", "FLOAT") else "text"
+                    cols.append(ColumnMeta(name=c, original=c, kind=kind, n_distinct=nd or 0,
+                                           min_value=None if lo is None else str(lo), max_value=None if hi is None else str(hi),
+                                           top_values=top))
+                tables.append(TableMeta(name=t, row_count=n, source="std", columns=cols))
+            self.tables = tables
+            self.readme_text = STD_GUIDE + "\n\n" + self.readme_text
+        finally:
+            conn.close()
 
     # --------------------------- đọc file --------------------------------
 

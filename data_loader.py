@@ -219,6 +219,8 @@ def parse_number(value: Any) -> float | None:
                 break
 
     # Tách số đầu chuỗi kiểu "1 kg", "2 chai" (chỉ khi phần còn lại không phải số).
+    if "=" in raw:
+        return None  # "1 thùng = 4 bịch" là quy đổi, không phải một số
     m = re.match(r"^([\d.,]+)\s*[^\d.,\s].*$", raw)
     if m:
         raw = m.group(1)
@@ -1056,6 +1058,12 @@ def parse_readme(readme_text: str) -> dict:
     dropped = 0
 
     for line in readme_text.splitlines():
+        # Câu văn: "**Hàng theo bó**: A, B, C bán theo bó, 1 bó = 10 cây; ..."
+        mp = re.search(r"^\s*-?\s*(?:\*\*[^*]+\*\*\s*:\s*)?(.+?)\s+bán theo\s+(\S+?),\s*1\s+(\S+)\s*=\s*([\d.,]+)\s+([^\s;.,]+)", line)
+        if mp and mp.group(2) == mp.group(3) and parse_number(mp.group(4)):
+            for item in re.split(r",\s*|\s+và\s+", mp.group(1).strip()):
+                conversions.append({"san_pham": item.strip(), "don_vi_lon": mp.group(3), "he_so": parse_number(mp.group(4)),
+                                    "don_vi_co_ban": mp.group(5)})
         m = CONVERSION_LINE.match(line)
         if m:
             factor = parse_number(m.group("factor"))
@@ -1299,6 +1307,11 @@ def build_database(
             report["std"] = build_std(conn)
         except Exception as exc:  # noqa: BLE001 - bảng gốc vẫn dùng được nếu std lỗi
             report["warnings"].append(f"std_layer lỗi: {exc!r}")
+        try:
+            from std_extra import build_extra  # bảng std phụ: tiền đơn, phiếu thu, nhập, nợ, góp, tồn, lô, giao hàng...
+            report["std_extra"] = build_extra(conn)
+        except Exception as exc:  # noqa: BLE001
+            report["warnings"].append(f"std_extra lỗi: {exc!r}")
         report["views"] = []
         report["readme"] = {
             "found": bool(readme_text),

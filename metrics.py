@@ -22,7 +22,11 @@ class NoData(Exception):
     """Kỳ hỏi nằm hoàn toàn ngoài khoảng dữ liệu, hoặc shop không ghi loại thông tin cần (§7)."""
 
 
-LINE_FILTERS = ("product", "category", "brand", "size", "unit", "ingredient", "prescription")
+class Unsure(Exception):
+    """Dữ liệu có nhưng chưa tính chắc được (vd nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước đó) -> bỏ trống."""
+
+
+LINE_FILTERS = ("product", "category", "exclude_category", "brand", "size", "unit", "ingredient", "prescription")
 SHIFTS = {"sang": ("06:00:00", "13:59:59"), "chieu": ("14:00:00", "21:59:59")}
 
 
@@ -84,6 +88,10 @@ def _where_lines(conn, F: dict, args: list) -> list[str]:
     if names:
         w.append(f"l.product_name IN ({','.join('?' * len(names))})")
         args += names
+    excl = _list(F.get("exclude_category"))
+    if excl:
+        w.append(f"COALESCE(lower(l.category), '') NOT IN ({','.join('?' * len(excl))})")
+        args += [c.lower() for c in excl]
     cats = _list(F.get("category"))
     if cats:
         w.append(f"lower(l.category) IN ({','.join('?' * len(cats))})")
@@ -97,7 +105,7 @@ def _where_lines(conn, F: dict, args: list) -> list[str]:
         w.append(f"l.product_name {'' if F['prescription'] else 'NOT '}IN "
                  "(SELECT product_name FROM std_products WHERE is_prescription = 1)")
     units = _list(F.get("unit"))
-    if units:
+    if units and base_units(conn):  # shop không ghi đơn vị: đơn vị trong câu chỉ là cách đếm, không lọc
         ids = [n for n, u in base_units(conn).items() if _ukey(u) in {_ukey(x) for x in units}]
         w.append(f"l.product_name IN ({','.join('?' * len(ids)) or 'NULL'})")
         args += ids
@@ -114,13 +122,13 @@ def base_units(conn) -> dict[str, str]:
     if path and path in _BU_CACHE:
         return _BU_CACHE[path]
     out = {}
-    if path:
-        _BU_CACHE[path] = out
     if "base_unit" in _cols(conn, "std_products"):
         out.update(conn.execute("SELECT product_name, base_unit FROM std_products WHERE base_unit IS NOT NULL AND base_unit != ''").fetchall())
     for p, u in conn.execute("SELECT product_name, unit FROM std_lines WHERE qty = qty_base AND unit IS NOT NULL "
                              "GROUP BY product_name, unit ORDER BY COUNT(*) DESC"):
         out.setdefault(p, u)
+    if path:
+        _BU_CACHE[path] = out  # chỉ lưu khi đã điền xong: main.py chạy nhiều luồng
     return out
 
 
@@ -172,7 +180,7 @@ def qty(conn, start, end, as_of, **F) -> float:
     w, args = _order_rows(conn, start, end, as_of, F)
     lw = _where_lines(conn, F, args)
     return conn.execute(f"SELECT COALESCE(SUM(l.qty_base), 0) FROM std_lines l JOIN std_orders o USING(order_id) "
-                        f"WHERE {w} AND l.is_service_fee = 0 {''.join(' AND ' + x for x in lw)}", args).fetchone()[0]
+                        f"WHERE {w} AND l.is_service_fee = 0 AND COALESCE(l.line_kind, 'item') = 'item' {''.join(' AND ' + x for x in lw)}", args).fetchone()[0]
 
 
 def cancel_rate(conn, start, end, as_of, **F) -> float:
@@ -242,7 +250,7 @@ def top_products(conn, start, end, as_of, k=1, by="qty", lowest=False, **F) -> l
     val = {"qty": "SUM(l.qty_base)", "revenue": "SUM(l.line_revenue)",
            "profit": "SUM(l.line_revenue - COALESCE(l.line_cost, 0))"}[by]  # line_cost = qty × giá vốn/đơn vị bán (std)
     rows = conn.execute(f"SELECT l.product_name, MIN(l.product_id), {val} FROM std_lines l JOIN std_orders o USING(order_id) "
-                        f"WHERE {w} AND l.is_service_fee = 0 {''.join(' AND ' + x for x in lw)} GROUP BY l.product_name",
+                        f"WHERE {w} AND l.is_service_fee = 0 AND COALESCE(l.line_kind, 'item') = 'item' {''.join(' AND ' + x for x in lw)} GROUP BY l.product_name",
                         args).fetchall()
     items = [{"name": n, "code": c, "value": v} for n, c, v in rows]
     return _rank(items, k, lowest)
@@ -260,7 +268,7 @@ def top_customers(conn, start, end, as_of, k=1, by="revenue", **F) -> list[dict]
     rows = conn.execute(f"SELECT o.customer_key, COALESCE(MIN(c.customer_name), MIN(o.customer_name)), MIN(o.customer_id), {val} "
                         f"FROM std_orders o LEFT JOIN std_customers c USING(customer_key) "
                         f"WHERE {w} AND o.customer_key IS NOT NULL AND o.customer_key != '' GROUP BY o.customer_key", args).fetchall()
-    # "Vương Phương Loan - 0973 189 069" -> tên (§9 nhận cả hai, gold ghi tên)
+    # "Vương Phương Loan - 0900 000 001" -> tên (§9 nhận cả hai, gold ghi tên)
     return _rank([{"name": re.sub(r"\s*[-–(,]\s*\+?[\d .]{8,}\)?\s*$", "", n) if n else n, "code": cid or key, "key": key, "value": v}
                   for key, n, cid, v in rows], k)
 
@@ -293,7 +301,7 @@ def products_in_n_orders(conn, start, end, as_of, n: int, strict=False, **F) -> 
     w, args = _order_rows(conn, start, end, as_of, F)
     op = ">" if strict else ">="
     return conn.execute(f"SELECT COUNT(*) FROM (SELECT l.product_name FROM std_lines l JOIN std_orders o USING(order_id) "
-                        f"WHERE {w} AND l.is_service_fee = 0 GROUP BY 1 HAVING COUNT(DISTINCT o.order_id) {op} ?)",
+                        f"WHERE {w} AND l.is_service_fee = 0 AND COALESCE(l.line_kind, 'item') = 'item' GROUP BY 1 HAVING COUNT(DISTINCT o.order_id) {op} ?)",
                         args + [n]).fetchone()[0]
 
 
@@ -303,7 +311,7 @@ def unsold_items(conn, start, end, as_of, **F) -> list[dict]:
     args = [s]
     lw = _where_lines(conn, F, args)
     before = conn.execute("SELECT l.product_name, MIN(l.product_id) FROM std_lines l JOIN std_orders o USING(order_id) "
-                          f"WHERE o.is_valid = 1 AND o.order_date < ? AND l.is_service_fee = 0 {''.join(' AND ' + x for x in lw)} "
+                          f"WHERE o.is_valid = 1 AND o.order_date < ? AND l.is_service_fee = 0 AND COALESCE(l.line_kind, 'item') = 'item' {''.join(' AND ' + x for x in lw)} "
                           "GROUP BY 1", args).fetchall()
     sold = {r[0] for r in conn.execute("SELECT DISTINCT l.product_name FROM std_lines l JOIN std_orders o USING(order_id) "
                                        "WHERE o.is_valid = 1 AND o.order_date BETWEEN ? AND ?", (s, e))}
@@ -611,8 +619,20 @@ def debt_orders(conn, upto: str, as_of) -> list[dict]:
     """§4: đơn không huỷ, không COD/TMĐT, đặt đến hết X; còn nợ = tổng đơn phải trả − tiền trả đến hết X (> 0)."""
     _need(conn, "std_order_money")
     upto = min(upto, as_of)
+    has = lambda t: conn.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone() is not None  # noqa: E731
+    if not has("std_payments"):
+        if has("std_debt_book"):
+            return _debt_from_books(conn, upto)
+        snap = conn.execute("SELECT COUNT(debt_snapshot) FROM std_order_money").fetchone()[0]
+        last = conn.execute("SELECT MAX(order_date) FROM std_orders").fetchone()[0]
+        if not snap or upto < last:
+            raise Unsure("không có phiếu thu; nợ chỉ có ảnh chụp cuối dữ liệu")
     paid = defaultdict(float)
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_payments'").fetchone():
+    snapshot = not has("std_payments")
+    if snapshot:  # ảnh chụp "còn nợ" ở ngày cuối dữ liệu: nợ = due − (due − snapshot)
+        for oid, due, snap in conn.execute("SELECT order_id, amount_due, debt_snapshot FROM std_order_money"):
+            paid[oid] = (due or 0) - (snap or 0)
+    else:
         for oid, amt in conn.execute("SELECT order_id, SUM(amount) FROM std_payments WHERE paid_date <= ? GROUP BY 1", (upto,)):
             paid[oid] = amt or 0
     out = []
@@ -626,6 +646,26 @@ def debt_orders(conn, upto: str, as_of) -> list[dict]:
         if rest > 0.5:
             out.append({"order_id": oid, "date": d, "key": key or None, "name": name, "rest": rest,
                         "age": (date.fromisoformat(upto) - date.fromisoformat(d)).days})
+    return out
+
+
+def _debt_from_books(conn, upto: str) -> list[dict]:
+    """Shop ghi sổ nợ tay (+ sổ góp): nợ đơn = nợ sau lúc mua − các lần trả đến hết X; góp còn lại cũng là nợ (luật public)."""
+    out, X = [], date.fromisoformat(upto)
+    paid = defaultdict(float)
+    for ref, d, a in conn.execute("SELECT order_ref, paid_date, amount FROM std_debt_book_payments"):
+        if d and str(d)[:10] <= upto:
+            paid[ref] += a or 0
+    for ref, d, cust, owe in conn.execute("SELECT order_ref, buy_date, customer, debt_after_purchase FROM std_debt_book"):
+        if d and d[:10] <= upto and (owe or 0) - paid[ref] > 0.5:
+            out.append({"order_id": ref, "date": d[:10], "key": _ukey(cust) or None, "name": cust, "rest": owe - paid[ref],
+                        "age": (X - date.fromisoformat(d[:10])).days})
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_installments'").fetchone():
+        buy = dict(conn.execute("SELECT contract_id, buy_date FROM std_installments").fetchall())
+        for x in installment_status(conn, upto, upto):
+            if x["rest"] > 0.5:
+                out.append({"order_id": x["id"], "date": buy[x["id"]][:10], "key": _ukey(x["customer"]) or None,
+                            "name": x["customer"], "rest": x["rest"], "age": (X - date.fromisoformat(buy[x["id"]][:10])).days})
     return out
 
 
@@ -658,6 +698,16 @@ def debt_flow(conn, start, end, as_of, customer_key=None) -> tuple[float, float]
     _need(conn, "std_order_money")
     s, e = start or "0000", min(end or as_of, as_of)
     new = repaid = 0.0
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_payments'").fetchone():
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_debt_book'").fetchone() or customer_key:
+            raise Unsure("không có phiếu thu")  # shortcut: sổ nợ tay không có mã khách, chưa lọc theo khách
+        new = sum(o or 0 for (o,) in conn.execute("SELECT debt_after_purchase FROM std_debt_book WHERE buy_date BETWEEN ? AND ?", (s, e)))
+        repaid = sum(a or 0 for (a,) in conn.execute("SELECT amount FROM std_debt_book_payments p JOIN std_debt_book b USING(order_ref) "
+                                                     "WHERE substr(p.paid_date, 1, 10) BETWEEN ? AND ? AND p.paid_date > b.buy_date", (s, e)))
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='std_installment_payments'").fetchone():  # tiền góp = trả nợ
+            repaid += sum(a or 0 for (a,) in conn.execute("SELECT amount FROM std_installment_payments WHERE substr(paid_date, 1, 10) "
+                                                         "BETWEEN ? AND ?", (s, e)))
+        return new, repaid
     rows = conn.execute("SELECT o.order_id, o.order_date, o.pay_method, o.customer_key, m.amount_due FROM std_orders o "
                         "JOIN std_order_money m USING(order_id) WHERE o.status_norm != 'huỷ' AND o.order_date <= ?", (e,)).fetchall()
     pays = defaultdict(list)

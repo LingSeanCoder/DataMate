@@ -75,6 +75,7 @@ CASES = [
      [M(2025, 12, 31), M(2026, 1, 31), M(2026, 2, 28)]),
     ("q_f4a5eee7f524", "2026-05-10", "Từ th 1/25 tới th 3/25, dthu tháng sau đều cao hơn tháng trước hả?",
      [M(2025, 1, 31), M(2025, 2, 28), M(2025, 3, 31)]),
+    ("q_964968", "2026-07-22", "Dthu tháng 3, tháng 4, tháng 5 năm 2025 lần lượt bnhiu?", [M(2025, 3, 31), M(2025, 4, 30), M(2025, 5, 31)]),
     ("q_2ac539902fe6", "2026-05-24", "Thang 2/26 so voi cung thang nam truoc, doanh thu thay doi bao nhieu %?", [M(2026, 2, 28), M(2025, 2, 28)]),
 ]
 
