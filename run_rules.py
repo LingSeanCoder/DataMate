@@ -144,12 +144,12 @@ def _main_periods(pers):
 
 def _amount(txt: str) -> float | None:
     txt = re.sub(r"(?<=\d)\s*(d|dong|vnd)(?![a-z])", " ", txt)  # "3.200đ" -> "3.200"
-    m = re.search(r"(\d[\d.,]*)\s*(k|nghin|ngan|trieu|tr|ty)?(?![a-z\d])", txt)
+    m = re.search(r"(\d[\d.,]*)\s*(k|nghin|ngan|trieu|tr|ty|cu)?(?![a-z\d])", txt)
     if not m:
         return None
     raw = m.group(1).rstrip(".,")
     v = float(raw.replace(".", "").replace(",", ".")) if re.search(r"\.\d{3}", raw) or "," in raw else float(raw)
-    return v * {"k": 1e3, "nghin": 1e3, "ngan": 1e3, "trieu": 1e6, "tr": 1e6, "ty": 1e9}.get(m.group(2) or "", 1)
+    return v * {"k": 1e3, "nghin": 1e3, "ngan": 1e3, "trieu": 1e6, "tr": 1e6, "ty": 1e9, "cu": 1e6}.get(m.group(2) or "", 1)
 
 
 def _clean(F: dict) -> dict:
@@ -532,7 +532,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(names, "list") if plural else shape_answer(names[0], "string")
 
     # Đếm số ngày doanh thu/số đơn đạt ngưỡng.
-    m = re.search(r"(?:dem|so|bao nhieu|may) ngay .{0,70}?(tu|≥|>=|tren|hon|dat|it nhat|duoi|<) ?([\d.,]+ ?(?:k|nghin|ngan|trieu|tr|ty)?)"
+    m = re.search(r"(?:dem|so|bao nhieu|may) ngay .{0,70}?(tu|≥|>=|tren|hon|dat|it nhat|duoi|<) ?([\d.,]+ ?(?:k|nghin|ngan|trieu|tr|ty|cu)?)"
                   r"( ?(?:dong|d)?)( don)?(.{0,12}tro len)?", qn)
     if m and main and _amount(m.group(2)) is not None:
         op = {"tu": ">=", "≥": ">=", ">=": ">=", "dat": ">=", "it nhat": ">=", "tren": ">", "hon": ">", "duoi": "<", "<": "<"}[m.group(1)]
@@ -633,11 +633,11 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
     if intent == "count_orders":
         if not main:
             return ABSTAIN
-        m = re.search(r"(?:dat|tu|tren|it nhat|≥|>=) ?([\d.,]+) ?(k|nghin|ngan|trieu|tr|dong|d)?\b", qn)
+        m = re.search(r"(?:dat|tu|tren|it nhat|≥|>=) ?([\d.,]+) ?(k|nghin|ngan|trieu|tr|cu|dong|d)?\b", qn)
         min_amount = None
         if m and re.search(r"tien hang|gia tri|tong tien|doanh thu", qn):
             min_amount = float(m.group(1).replace(".", "").replace(",", "."))
-            min_amount *= {"k": 1e3, "nghin": 1e3, "ngan": 1e3, "trieu": 1e6, "tr": 1e6}.get(m.group(2) or "", 1)
+            min_amount *= {"k": 1e3, "nghin": 1e3, "ngan": 1e3, "trieu": 1e6, "tr": 1e6, "cu": 1e6}.get(m.group(2) or "", 1)
         Fv = {kk: v for kk, v in F.items() if kk != "customer_name" and v not in (None, [], "")}
         return shape_answer(M.count_orders(conn, *span, as_of, min_amount=min_amount, **Fv), "number")
 
@@ -701,6 +701,10 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
             whole_f = {}
             if measure == "qty" and (Fv.get("brand") or Fv.get("size")):  # % size/hãng chia tổng bịch cùng nhóm (bỉm tã)
                 whole_f = {kk: v for kk, v in Fv.items() if kk in ("category", "unit")}
+            if re.search(r"\b(tien|doanh thu|so|tong)( ban)? may\b(?! (moi|cu)\b)", qn):  # "% tiền bán máy": mẫu số chỉ máy mới + máy cũ
+                cats = [c for (c,) in conn.execute("SELECT DISTINCT category FROM std_lines WHERE category IS NOT NULL") if "may" in M._ukey(c)]
+                if cats:
+                    whole_f = {"category": cats}
             whole = _value(conn, measure, *span, as_of, whole_f)
             return shape_answer(M.share(val, whole), "percent")
         return shape_answer(val, "number", money=measure == "revenue")

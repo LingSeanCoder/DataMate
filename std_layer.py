@@ -406,6 +406,48 @@ def _text_conversions(conn, cols) -> list[tuple]:
     return out
 
 
+def _canon_names(lines: pd.DataFrame) -> None:
+    """§3.5: tên chỉ khác hoa/thường/dấu là một mặt hàng -> gom về cách viết phổ biến nhất."""
+    pkey = lines["product_name"].map(_key)
+    canon = lines.groupby(pkey)["product_name"].agg(lambda s: s.value_counts().idxmax() if s.notna().any() else None)
+    lines["product_name"] = pkey.map(canon).where(lines["product_name"].notna())
+
+
+_TOPPING_RX = re.compile(r"\s+\+\s+(?:(\d+)\s+)?([^+()]+?)\s*\(([\d.,]+)\s*(?:đ|d|đồng|vnd)?\)", re.I)
+
+
+def split_toppings(lines: pd.DataFrame) -> pd.DataFrame:
+    """Rulebook (cà phê): "Món + 2 Thạch (14.000đ)" là hai mặt hàng; topping lấy số phần và tiền trong ngoặc,
+    món giữ số lượng của dòng, tiền món = tiền dòng − tiền topping."""
+    names = lines["product_name"].astype(str)
+    mask = names.str.contains(r"\s\+\s.*\(", regex=True, na=False)
+    if not mask.any():
+        return lines
+    keep, extra = lines.copy(), []
+    known = {_key(v): v for v in names[~mask].unique()}  # dòng topping riêng: "Topping Kem cheese" = "Kem cheese"
+    for idx in lines.index[mask]:
+        row = lines.loc[idx]
+        tops = _TOPPING_RX.findall(str(row["product_name"]))
+        if not tops:
+            continue
+        money = [float(m.replace(".", "").replace(",", "")) for _, _, m in tops]
+        keep.at[idx, "product_name"] = str(row["product_name"]).split(" + ")[0].strip()
+        keep.at[idx, "line_revenue"] = (row["line_revenue"] or 0) - sum(money)
+        for (n, name, _), amt in zip(tops, money):
+            t = row.copy()
+            name = name.strip()
+            t["product_name"] = known.get(_key("Topping " + name), name)
+            t["unit"] = "phần"
+            t["qty"] = t["qty_base"] = float(n or 1)
+            t["line_revenue"], t["product_id"] = amt, None
+            if "line_cost" in t:
+                t["line_cost"] = None
+            if "category" in t:
+                t["category"] = None
+            extra.append(t)
+    return pd.concat([keep, pd.DataFrame(extra)], ignore_index=True) if extra else keep
+
+
 def _expand_abbrev(conn, cols, line_t: str, lines: pd.DataFrame) -> str:
     """Sổ ghi tên tắt (README: "có thể ghi tắt (tra ở sheet Ghi tắt)"): bảng có 1 cột khớp >=50% tên trên dòng bán và
     1 cột tên dài hơn -> thay bằng tên đầy đủ, giữ tên gốc ở product_name_raw."""
@@ -775,9 +817,7 @@ def build_std(conn: sqlite3.Connection) -> dict:
         meta["line.abbrev"] = _expand_abbrev(conn, cols, line_t, lines)
         meta["line.catalog_fill"] = _fill_from_catalog(conn, cols, line_t, lines, bool(name), bool(code))
         # §3.5: tên chỉ khác hoa/thường/dấu là một mặt hàng -> gom về cách viết phổ biến nhất.
-        pkey = lines["product_name"].map(_key)
-        canon = lines.groupby(pkey)["product_name"].agg(lambda s: s.value_counts().idxmax() if s.notna().any() else None)
-        lines["product_name"] = pkey.map(canon).where(lines["product_name"].notna())
+        _canon_names(lines)
         lines["line_cost"] = lines["qty"] * pd.to_numeric(df[cost.name], errors="coerce") if cost else None
         lines["is_service_fee"] = lines["product_name"].map(lambda v: int("phiphucvu" in _key(v)))
         # Dòng không phải hàng (Voucher, Dùng n điểm, Phí ship, giảm giá đơn): không phải doanh thu (§1),
@@ -870,6 +910,10 @@ def build_std(conn: sqlite3.Connection) -> dict:
         meta[f"order.{field}"] = c.name if c else ""
 
     if line_t:
+        n_before = len(lines)
+        lines = split_toppings(lines)
+        if len(lines) != n_before:  # tên món sau khi bỏ topping cần gom cách viết lại
+            _canon_names(lines)
         g = lines.groupby("order_id")
         agg = pd.DataFrame({"revenue": g["line_revenue"].sum(), "n_lines": g.size(),
                             "_lstatus": g["_status"].agg(lambda s: _order_status(s) if s.notna().any() else None)})

@@ -201,7 +201,7 @@ def resolve(question: str, as_of: str, calendar_csv: str = "calendar.csv") -> li
 
     # 5) Tháng này / từ đầu tháng này đến hết hôm nay; cùng kỳ tháng trước (§2).
     has_this_month = re.search(r"thang nay", q) is not None
-    for m in re.finditer(r"(?:tu dau thang nay|thang nay)(?: (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay)?", q):
+    for m in re.finditer(r"(?:tu dau thang nay|thang nay|tu dau thang(?= (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay))(?: (?:tinh den|den|toi)(?: het)?(?: ngay)? hom nay)?", q):
         if not take(m):
             continue
         add(m.start(), _period(today.replace(day=1), today, "month_to_date", "tháng này"))

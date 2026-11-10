@@ -19,6 +19,8 @@ CASES = [
     ("q_1341cdede99a", "2026-08-21", "T5/2025 co may mat hang nam trong it nhat 122 don khac nhau?", [M(2025, 5, 31)]),
     ("q_e2bfd7f28a9a", "2026-06-13", "Từ đầu tháng này đến hết hôm nay, doanh thu hơn hay kém cùng kỳ tháng rồi mấy %?",
      [("2026-06-01", "2026-06-13"), ("2026-05-01", "2026-05-13")]),
+    ("q_ad782d8acb44", "2025-08-14", "Doanh thu tu dau thang den het hom nay so voi cung ky thang truoc chenh bao nhieu phan tram, tang hay giam?",
+     [("2025-08-01", "2025-08-14"), ("2025-07-01", "2025-07-14")]),
     ("q_1fc8004b6900", "2026-06-30", "Th này sốp bán ra bnhiu lon sữa bột số 4 z, gộp hết mọi hãng?", [("2026-06-01", "2026-06-30")]),
     ("q_8818447349a6", "2026-09-19", "Th này đơn bán qua Zalo OA dthu bnhiu, còn đơn bán tại quầy bnhiu?", [("2026-09-01", "2026-09-19")]),
     ("q_86198c3c128b", "2025-07-20", "Tuần này 5 mặt hàng nào bán chạy nhất?", [("2025-07-14", "2025-07-20")]),  # CN
