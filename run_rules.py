@@ -417,7 +417,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
 
     # Lô hạn dùng (§6 nhà thuốc).
     if re.search(r"het han|han dung|han su dung|\bhsd\b|\blo hang\b|\bcac lo\b|can date", qn) and not re.search(r"ban (duoc|ra)|doanh thu", qn) \
-            and not re.search(r"het hang", qn):
+            and not re.search(r"(het|chay|dut) hang", qn):
         if re.search(r"gan het han nhat|het han (som|gan) nhat|han (som|gan) nhat|can date", qn):
             if not ent.get("product"):
                 return ABSTAIN
@@ -442,7 +442,7 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
         return shape_answer(names, "list")
 
     # Số mặt hàng hết hàng cuối ngày (§5: tồn = 0 lúc hết ngày).
-    if re.search(r"(bao nhieu|may|so) (mat hang|san pham|mon) .{0,20}het hang", qn):
+    if re.search(r"(bao nhieu|may|so) (mat hang|san pham|mon) .{0,20}(het|chay|dut) hang|(het|chay|dut) hang (bao nhieu|may) (mat hang|san pham|mon)", qn):
         day = next((p["end"] for p in pers if p["kind"] in ("upto", "day")), None) or as_of
         return shape_answer(M.stock_out_count(conn, day, as_of), "number")
 
