@@ -8,13 +8,14 @@
 - **Public leaderboard lần 1 (chỉ-luật): 0.598** = điểm ròng (đúng − sai)/1000, tức ~795 đúng / 197 sai (~80% đúng), KHÔNG phải overfit 98%→60%.
 - Sửa sau điểm đầu: nợ ghi bằng chữ trong Note (`std_extra.debt_from_note`, dev_008); hỏi nhóm hàng mà shop không có cột nhóm → unanswerable (§7, dev_002/004); "từ khi X lên 35.000đ" = tăng giá (`count_intents.py`).
 - Chấm tay mẫu 3 (70 câu, 5/biz, ghi ở `tasks/public_check_50.md` – gitignore): 65/70 trước sửa. Sửa: topping ghi chung ô thành mặt hàng riêng (`std_layer.split_toppings` + `_canon_names`, dev_002); "củ" = triệu (`run_rules._amount` + 2 regex ngưỡng); "từ đầu tháng đến hết hôm nay" = tháng này (`time_resolver.py`, test mới); "% tiền bán máy" mẫu số chỉ máy mới + cũ (`run_rules.py`). Rà họ tồn kho: public KHÔNG có câu chẵn/lẻ; sửa "cháy hàng"/"đứt hàng" = hết hàng (2 câu dev_006); 3 câu giá trị tồn + 3 câu hết hàng đã kiểm tay đúng.
+- P1 (2026-11-11 tối): vòng 0 quét bất thường 1000 câu → sửa 10; vòng 1 (70 câu) 66/70 → sửa 4 loại (+2 câu ngoài mẫu); vòng 2 (70 câu) **70/70 → dừng chấm**. Tổng 5 mẫu (310 câu) + quét: độ đúng hiện ước ~95%+. Train **2962/3000**.
 - Hiện tại: train **2961/3000** (điểm 2934); public 0 câu bỏ trống, 30 unanswerable. Tổng 3 mẫu chấm tay (170 câu) → độ đúng ~88–93%, lỗi rải rác, không có họ nào nên abstain.
 
-**In progress:** file nộp bản mới đã tạo: `../out_public_rules_v2.jsonl` (ngoài repo, 1000 dòng, đủ id, 0 null, gồm cả sửa cháy/đứt hàng) — chờ người dùng nộp leaderboard và báo điểm.
+**In progress:** file nộp bản mới đã tạo: `../out_public_rules_v2.jsonl` (ngoài repo, 1000 dòng, đủ id, 0 null, code `c38bc29` + vòng 2 không đổi code) — chờ người dùng nộp leaderboard và báo điểm.
 
 **Next steps:**
 1. Chạy public chỉ-luật → nộp leaderboard, ghi điểm vào đây (kỳ vọng > 0.598).
-2. Chấm thêm mẫu public (5–10 câu/biz, seed mới, loại id đã có trong `tasks/public_check_50.md`), ưu tiên dev_001, 002, 004, 014; cách chấm: script pandas đọc bảng thô trong `tmp_db_dev/dev_XXX.db` (bảng gốc giữ tên cột snake_case), lọc trạng thái thô, bỏ cả đơn có dòng huỷ/trả, gộp tên bỏ dấu.
+2. (Đã dừng chấm mẫu: vòng 2 = 70/70.) Nếu chấm thêm: script pandas đọc bảng thô trong `tmp_db_dev/dev_XXX.db`, lọc trạng thái thô, bỏ cả đơn có dòng huỷ/trả, gộp tên bỏ dấu; loại id đã có trong `tasks/public_check_50.md`.
 3. Phase 7: khớp quy định nộp của BTC (mount path, tên file, registry hay .tar) — chỉ sửa `run.sh`; trước nộp build `--platform linux/amd64`, chạy `--network=none` trên public, kiểm 1000 dòng.
 
 **Decisions:** LLM tắt (lỗ trên train). Thông tin shop không ghi → unanswerable, không suy từ cột khác (§7). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Topping: số phần + tiền trong ngoặc là của topping, món giữ SL dòng, tiền món = tiền dòng − tiền topping.
