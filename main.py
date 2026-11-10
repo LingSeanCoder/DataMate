@@ -330,6 +330,10 @@ def run_batch(args: argparse.Namespace) -> int:
     bundled = data_root.parent / "rulebook.md"  # bộ đề kèm rulebook riêng (train/public/private khác nhau)
     if args.rulebook == "rulebook.md" and bundled.is_file():
         args.rulebook = str(bundled)
+    cal = data_root.parent / "calendar.csv"  # lịch âm đi kèm bộ đề (Tết), dùng cho cả luật lẫn agent
+    if args.calendar == "calendar.csv" and cal.is_file():
+        args.calendar = str(cal)
+    os.environ["DATAMATE_CALENDAR"] = args.calendar
 
     raw = read_jsonl(questions_path)
     questions = [normalise_question(obj, i + 1) for i, obj in enumerate(raw)]

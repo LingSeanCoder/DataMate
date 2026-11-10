@@ -8,10 +8,10 @@
 - Chấm tay 100 câu public trên bảng thô (file chỉ ở máy, gitignore: `tasks/public_check_50.md`): đúng 84% / 88% TRƯỚC sửa → độ đúng public thật ~84–88% (train 98%). Đã sửa 14 lỗi tìm được.
 - Phase 5 unanswerable: train 70/70 (+ luật tổng quát: 'ai/nào … X nhất' mà X không đo được → định tính; không phụ thuộc danh sách từ train), 0 gắn nhầm. **Train 2961/3000, điểm 2934; public 992/1000 có đáp án.**
 
-**In progress:** không có. Đang chờ người dùng đồng ý chuẩn bị Phase 6.
+**In progress — Phase 6:** đã có `colab_phase6.ipynb` (llama.cpp server CUDA + Qwen2.5-Coder-14B Q4_K_M; build DB; chạy chỉ-luật và có-LLM trên train/public; báo cáo LLM trên câu luật bỏ trống so với gold, thời gian, tính tất định 2 lần chạy). Đã thử nhánh LLM end-to-end bằng LLM giả ở máy (8 câu đi LLM, chạy thông). Agent gửi seed=42; main ưu tiên `calendar.csv` đi kèm bộ đề. **Đang chờ người dùng chạy notebook trên Colab** và gửi lại `MyDrive/DATAMATE/phase6_out/` hoặc bảng in ở ô cuối.
 
 **Next steps:**
-1. Phase 6: soạn notebook Colab (cài llama.cpp server + Qwen2.5-Coder-14B-Instruct Q4_K_M, temperature 0, seed 42), chạy `main.py` có LLM; đo trên **50 câu public MỚI** (loại 100 câu đã chấm), chấm tay như trước; chỉ bật LLM (fallback/kiểm chéo) nếu tăng điểm thật.
+1. Phase 6: đọc kết quả notebook → LLM chỉ được bật nếu điểm LLM thêm trên train > 0 (đúng > sai) và 2 lần chạy public giống nhau; nếu không thì nộp `--no-llm`. Chấm tay các câu public đi LLM (khoảng 8 câu).
 2. Phase 7: Dockerfile chạy `main.py` (`--network=none`), test trọn quy trình trên public; có sẵn bản `--no-llm` làm phương án dự phòng.
 
 **Decisions:** không làm router LLM (luật phủ 99% public; LLM chỉ là fallback, đo ở Phase 6). Thứ tự phase 5→6→7 theo ý người dùng (tôi từng đề xuất Docker trước vì hạn gần). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Shop không ghi loại thông tin → unanswerable.

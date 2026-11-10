@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 from collections import defaultdict
@@ -111,7 +112,7 @@ def answer(q: dict, db: str) -> dict:
             if has_reason:
                 return ABSTAIN  # shortcut: chưa tính theo lý do; làm khi có câu train/gold dạng này
         return {"type": "unanswerable", "reason": "câu định tính / dữ liệu không ghi"}
-    pers = [p for p in resolve(text, as_of) if p["kind"] not in ("event_window",)]
+    pers = [p for p in resolve(text, as_of, os.environ.get("DATAMATE_CALENDAR", "calendar.csv")) if p["kind"] not in ("event_window",)]
     ent = extract_entities(text, db)
     F = _filters(ent, qn)
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)

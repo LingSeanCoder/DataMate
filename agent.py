@@ -2368,6 +2368,7 @@ class DataMateAgent:
                     "model": model,
                     "messages": messages,
                     "temperature": 0,
+                    "seed": 42,  # luật cuộc thi: deterministic
                     "max_tokens": self.max_tokens,
                 }
                 if json_mode:
