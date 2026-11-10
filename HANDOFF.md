@@ -1,36 +1,33 @@
-# HANDOFF — DataMate (Zalo AI Challenge 2026) — cập nhật 2026-11-11
+# HANDOFF — DataMate (Zalo AI Challenge 2026) — cập nhật 2026-11-11 (tối)
 
-**Goal:** trả lời câu hỏi số liệu bán hàng theo rulebook; nộp Docker (offline, ≤15B, 2×RTX 5090, ≤6h) **trước 16/11/2026**. Làm theo plan v3, xong mỗi phase: báo cáo (Tasks / Verify / Files / Blockers), commit + push `main` (người dùng đã cho phép), rồi HỎI trước khi sang phase sau. Trả lời tiếng Việt. Chi tiết lịch sử: `tasks/HANDOFF.md`.
+**Goal:** trả lời câu hỏi số liệu bán hàng theo rulebook; nộp Docker (offline, ≤15B, 2×RTX 5090, ≤6h) **trước 16/11/2026**. Mỗi bước: báo cáo, commit + push `main` (đã được cho phép), hỏi trước khi sang việc lớn tiếp theo. Trả lời tiếng Việt. Lịch sử cũ: `tasks/HANDOFF.md`.
 
-**Done (đã push, commit cuối `2fcaae6` + commit handoff này):**
-- Phase 0–3: tầng std_* (`std_layer.py`, `std_extra.py`), `time_resolver.py`, `entity.py`, `metrics.py`, router regex `run_rules.py`.
-- Phase 4: `main.py` = luật trước, chỉ câu bỏ trống mới gọi LLM (`agent.py`, `std_only=True`); `--no-llm`; build gọi luôn `std_extra`; `rulebook.md` = bản public (train → `rulebook_train.md`), main ưu tiên `<data-root>/../rulebook.md`.
-- Chấm tay 100 câu public trên bảng thô (file chỉ ở máy, gitignore: `tasks/public_check_50.md`): đúng 84% / 88% TRƯỚC sửa → độ đúng public thật ~84–88% (train 98%). Đã sửa 14 lỗi tìm được.
-- Phase 5 unanswerable: train 70/70 (+ luật tổng quát: 'ai/nào … X nhất' mà X không đo được → định tính; không phụ thuộc danh sách từ train), 0 gắn nhầm. **Train 2961/3000, điểm 2934; public 992/1000 có đáp án.**
-- Phase 7 (bản chỉ-luật): `Dockerfile` (python:3.11-slim) + `run.sh`: mount bộ đề nguyên vào `/data` (questions.jsonl, data/, rulebook.md, calendar.csv) → `/result/submission.jsonl`, log `/result/logs/`. Thử `--network=none` trên 1000 câu public: 6,2 phút, trùng khớp 1000/1000 với chạy ngoài Docker; bản `linux/amd64` build + chạy được. README đã cập nhật phần Docker. Hướng dẫn Colab cho thành viên: `COLAB.md`.
+**Done (đã push, commit cuối `64dfdab`):**
+- Phase 0–5, 7 (bản chỉ-luật): std_* (`std_layer.py`, `std_extra.py`), `time_resolver.py`, `entity.py`, `metrics.py`, router `run_rules.py`, `main.py` (luật trước, LLM fallback), Docker `Dockerfile` + `run.sh` (`/data` → `/result/submission.jsonl`, đã thử `--network=none`, amd64).
+- Phase 6 xong: LLM trên train 3 đúng / 9 sai → **tắt LLM, nộp `--no-llm`**. `main.py` chặn mọi answer null → abstain.
+- **Public leaderboard lần 1 (chỉ-luật): 0.598** = điểm ròng (đúng − sai)/1000, tức ~795 đúng / 197 sai (~80% đúng), KHÔNG phải overfit 98%→60%.
+- Sửa sau điểm đầu: nợ ghi bằng chữ trong Note (`std_extra.debt_from_note`, dev_008); hỏi nhóm hàng mà shop không có cột nhóm → unanswerable (§7, dev_002/004); "từ khi X lên 35.000đ" = tăng giá (`count_intents.py`).
+- Chấm tay mẫu 3 (70 câu, 5/biz, ghi ở `tasks/public_check_50.md` – gitignore): 65/70 trước sửa. Sửa: topping ghi chung ô thành mặt hàng riêng (`std_layer.split_toppings` + `_canon_names`, dev_002); "củ" = triệu (`run_rules._amount` + 2 regex ngưỡng); "từ đầu tháng đến hết hôm nay" = tháng này (`time_resolver.py`, test mới); "% tiền bán máy" mẫu số chỉ máy mới + cũ (`run_rules.py`).
+- Hiện tại: train **2961/3000** (điểm 2934); public 0 câu bỏ trống, 30 unanswerable. Tổng 3 mẫu chấm tay (170 câu) → độ đúng ~88–93%, lỗi rải rác, không có họ nào nên abstain.
 
-**2026-11-11 — điểm public đầu tiên:** nộp chỉ-luật được **0.598**. Đây là điểm ròng (đúng − sai)/1000, không phải độ đúng: 992 câu có đáp án → khoảng 795 đúng / 197 sai (~80% đúng), khớp ước lượng chấm tay 84–88%. LLM trên train: 3 đúng / 9 sai → **tắt LLM** (`--no-llm`). Đã sửa: (a) `main.py` chặn mọi answer null → abstain; (b) `std_extra.debt_from_note`: sổ ghi nợ bằng chữ trong Note (dev_008) → còn nợ; (c) hỏi theo nhóm hàng mà shop không có cột nhóm (dev_002, dev_004) → unanswerable (§7); (d) `count_intents` nhận "từ khi X lên 35.000đ" là tăng giá. Public: 8 câu bỏ trống → 0; train vẫn 2961/3000.
-**Chấm tay mẫu 3 (70 câu, 5/biz, `tasks/public_check_50.md`):** 65/70 đúng trước sửa (~93%). Đã sửa: topping ghi chung ô thành mặt hàng riêng (`std_layer.split_toppings`, dev_002); "củ" = triệu; "từ đầu tháng đến hết hôm nay" (thiếu "này") = tháng này; "% tiền bán máy" chỉ chia cho máy mới + cũ. Public đổi 10 câu, train vẫn 2961/3000. Tổng 3 mẫu (170 câu) gợi ý độ đúng ~88–93% → ~200 câu sai còn rải rác, không tập trung một họ.
-
-**In progress — Phase 6 (chờ Tài chạy Colab):** đã có `colab_phase6.ipynb` (llama.cpp server CUDA + Qwen2.5-Coder-14B Q4_K_M; build DB; chạy chỉ-luật và có-LLM trên train/public; báo cáo LLM trên câu luật bỏ trống so với gold, thời gian, tính tất định 2 lần chạy). Đã thử nhánh LLM end-to-end bằng LLM giả ở máy (8 câu đi LLM, chạy thông). Agent gửi seed=42; main ưu tiên `calendar.csv` đi kèm bộ đề. **Đang chờ thành viên (Tài) chạy notebook theo `COLAB.md`** và gửi lại `MyDrive/DATAMATE/phase6_out/` hoặc bảng in ở ô cuối.
+**In progress:** chưa nộp lại bản mới. File đã chạy nằm ở scratchpad (mất khi hết phiên) → tạo lại bằng lệnh chạy public bên dưới.
 
 **Next steps:**
-0. Nộp lại bản chỉ-luật mới để đo điểm public; nếu còn thời gian chấm thêm mẫu (ưu tiên dev_001, dev_002, dev_004, dev_014 — mỗi biz sai 1/5).
-1. Phase 6: đọc kết quả notebook → LLM chỉ được bật nếu điểm LLM thêm trên train > 0 (đúng > sai) và 2 lần chạy public giống nhau; nếu không thì nộp `--no-llm`. Chấm tay các câu public đi LLM (khoảng 8 câu).
-2. Phase 7 còn lại: (a) khớp quy định nộp của BTC (đường dẫn mount input/output, tên file, cách nộp image: registry hay .tar) — chỉ cần sửa `run.sh`; (b) nếu Phase 6 bật LLM: image CUDA 12.8+ (nvidia/cuda), build llama-server với `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120` cho RTX 5090, chép model GGUF vào image, `run.sh` bật server rồi chạy `main.py` không `--no-llm` (`USE_LLM=1`); không thử được trên Mac.
-3. Trước nộp: build `--platform linux/amd64`, chạy `--network=none` trên public, kiểm 1000 dòng.
+1. Chạy public chỉ-luật → nộp leaderboard, ghi điểm vào đây (kỳ vọng > 0.598).
+2. Chấm thêm mẫu public (5–10 câu/biz, seed mới, loại id đã có trong `tasks/public_check_50.md`), ưu tiên dev_001, 002, 004, 014; cách chấm: script pandas đọc bảng thô trong `tmp_db_dev/dev_XXX.db` (bảng gốc giữ tên cột snake_case), lọc trạng thái thô, bỏ cả đơn có dòng huỷ/trả, gộp tên bỏ dấu.
+3. Phase 7: khớp quy định nộp của BTC (mount path, tên file, registry hay .tar) — chỉ sửa `run.sh`; trước nộp build `--platform linux/amd64`, chạy `--network=none` trên public, kiểm 1000 dòng.
 
-**Decisions:** không làm router LLM (luật phủ 99% public; LLM chỉ là fallback, đo ở Phase 6). Thứ tự phase 5→6→7 theo ý người dùng (tôi từng đề xuất Docker trước vì hạn gần). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Shop không ghi loại thông tin → unanswerable.
+**Decisions:** LLM tắt (lỗ trên train). Thông tin shop không ghi → unanswerable, không suy từ cột khác (§7). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Topping: số phần + tiền trong ngoặc là của topping, món giữ SL dòng, tiền món = tiền dòng − tiền topping.
 
-**Tried & failed:** sửa `parse_number` quá chặt làm hỏng "2 bao 25kg" (đã đổi thành chỉ loại chuỗi có "="). Cache `base_units` đăng ký trước khi điền → đua luồng (đã sửa). Nhiều lần regex thiếu `\b` gây khớp nhầm ("hồng"→"không", "phần trăm"→"hạn trả", "bao nhiêu"→đơn vị "bao") — sau mỗi sửa PHẢI chạy lại train.
+**Tried & failed:** tách topping trước bước gom tên làm lệch index với bảng thô → giữ tách ở cuối rồi gom tên lại. `parse_number` quá chặt hỏng "2 bao 25kg". Regex thiếu `\b` gây khớp nhầm — sau mỗi sửa PHẢI chạy lại train.
 
 **Verify with:**
 ```
-# DB phải build bằng code mới (sau pull): python main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl --db-dir tmp_db_dev --rebuild --no-llm  (train: --db-dir tmp_db)
-.venv/bin/python -W ignore run_rules.py --answers <answers.jsonl train> --wrong 0 | tail -1   # kỳ vọng 2961/3000
+python main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl --db-dir tmp_db_dev --no-llm --overwrite --out <out.jsonl> --log <log.jsonl>   # thêm --rebuild nếu đổi std_layer/std_extra; ~5 phút
+.venv/bin/python -W ignore run_rules.py --answers ../DATASET/train/answers.jsonl --wrong 0 | tail -1   # kỳ vọng 2961/3000 (std_extra đổi: chạy `python std_extra.py tmp_db/*.db` trước)
 .venv/bin/python test_time_resolver.py; .venv/bin/python test_time_public.py; .venv/bin/python -W ignore test_phase2.py
 .venv/bin/python -W ignore validate_std.py --db-dir tmp_db_dev   # 14/14
 ```
-**Lưu ý môi trường:** máy MacBook Air M3 16GB không quạt, không có llama-server/model → LLM chỉ chạy được trên Colab. Không chạy song song nhiều lệnh build. Repo GitHub là PUBLIC: không commit đáp án public test, đường dẫn máy, SĐT.
+**Lưu ý:** MacBook Air M3 16GB, không chạy song song nhiều build. Repo GitHub PUBLIC: không commit đáp án public, đường dẫn máy, SĐT. Push từng bị chặn vì email riêng tư (GH007) — nếu lặp lại, hỏi người dùng.
 
-**Open questions:** (1) quy định nộp Docker của BTC (mount path, output, cách nộp)? (2) kết quả Colab Phase 6 của Tài?
+**Open questions:** (1) quy định nộp Docker của BTC? (2) điểm leaderboard của bản mới?
