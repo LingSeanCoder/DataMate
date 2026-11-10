@@ -507,6 +507,10 @@ def _dispatch(conn, intent, text, qn, as_of, pers, ent, F) -> dict:
     if re.search(r"khach (hang )?(nhom|thuoc nhom) |nhom khach", qn) and not ent.get("customer_group") and \
             not conn.execute("SELECT 1 FROM std_customers WHERE customer_group IS NOT NULL AND customer_group != '' LIMIT 1").fetchone():
         return {"type": "unanswerable", "reason": "shop không ghi nhóm khách"}
+    # Hỏi theo nhóm hàng mà shop không có cột nhóm hàng -> unanswerable (§2 "Nhóm hàng: theo cột nhóm hàng").
+    if re.search(r"\bnhom (hang )?(?!khach)[a-z]", qn) and not ent.get("category") and \
+            not conn.execute("SELECT 1 FROM std_lines WHERE category IS NOT NULL AND category != '' LIMIT 1").fetchone():
+        return {"type": "unanswerable", "reason": "shop không ghi nhóm hàng"}
 
     # Lãi ròng = lãi gộp − chi phí.
     if main and re.search(r"(lai|loi) (rong|that)|loi nhuan rong|tru (het )?chi phi", qn):

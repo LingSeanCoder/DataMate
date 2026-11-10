@@ -52,6 +52,40 @@ def _fk_to_orders(df: pd.DataFrame, cs: list[Col], ids: set[str], min_ratio: flo
 
 # ----------------------------- tiền của đơn -----------------------------------
 
+_AMT = r"(\d[\d.,]*\s*(?:tr\s*\d*|triệu|k|nghìn|ngàn|đ|đồng|vnd)?)"
+
+
+def debt_from_note(note, due) -> float | None:
+    """Còn nợ (ảnh chụp cuối dữ liệu) suy từ ghi chú; None nếu ghi chú không nói về nợ."""
+    from data_loader import parse_number
+    if not isinstance(note, str):
+        return None
+    s = note.lower()
+    if not re.search(r"\bnợ\b|ghi sổ|thiếu|chưa trả", s):
+        return None
+    if re.search(r"trả (đủ|hết)|ck đủ|đã trả xong|thanh toán (đủ|hết)", s):
+        return 0.0
+    m = re.search(r"(?:thiếu(?: lại)?|\bnợ|ghi sổ)\s+" + _AMT, s)
+    if m and parse_number(m.group(1)):
+        return parse_number(m.group(1))
+    m = re.search(r"(?:đưa(?: trước)?|trả(?: trước)?|\bck)\s+" + _AMT, s)
+    if m and parse_number(m.group(1)) is not None and due == due:
+        return max(float(due) - parse_number(m.group(1)), 0.0)
+    return float(due) if due == due else None  # "nợ cả đơn", "ghi nợ" không số
+
+
+def _order_notes(conn, cols, meta: dict, ids: set[str]) -> dict:
+    for t in (meta.get("header_table"), meta.get("line_table")):
+        if not t or t not in cols:
+            continue
+        cs, df = cols[t], _read(conn, t)
+        fk = _fk_to_orders(df, cs, ids)
+        note = _first(cs, lambda c: c.kind == "text" and c.has("ghichu", "note", "luuy", "diengiai"))
+        if fk is not None and note is not None:
+            sub = df[[fk.name, note.name]].dropna()
+            return dict(zip(_id_str(sub[fk.name]), sub[note.name]))
+    return {}
+
 def build_order_money(conn, cols, meta: dict) -> int:
     ids = _std_ids(conn)
     if not ids:
@@ -99,6 +133,14 @@ def build_order_money(conn, cols, meta: dict) -> int:
         if k not in out:
             out[k] = None
     out = out.reset_index()[["order_id", "amount_due", "paid_total", "debt_snapshot", "ship_fee", "order_discount"]]
+    if out["debt_snapshot"].isna().all():  # sổ chỉ ghi nợ bằng chữ trong ghi chú: "ck 913 nghìn, thiếu lại 456.500đ"
+        notes = _order_notes(conn, cols, meta, ids)
+        if notes:
+            due = pd.to_numeric(out["amount_due"], errors="coerce")
+            snap = [debt_from_note(notes.get(o), d) for o, d in zip(out["order_id"], due)]
+            if any(s is not None for s in snap):
+                out["debt_snapshot"] = snap
+                meta["money.debt_snapshot"] = "(ghi chú đơn)"
     if out["amount_due"].isna().all():  # §4: tổng đơn = tiền hàng − giảm giá cả đơn + phí giao
         rev = dict(conn.execute("SELECT order_id, revenue FROM std_orders").fetchall())
         out["amount_due"] = (out["order_id"].map(rev).astype(float) - pd.to_numeric(out["order_discount"], errors="coerce").fillna(0)

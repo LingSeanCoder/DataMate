@@ -241,6 +241,10 @@ def run_business(
             except Exception as exc:  # noqa: BLE001
                 answer = {"id": item["id"], "type": "abstain"}
                 debug = {"id": item["id"], "note": f"{type(exc).__name__}: {exc}"}
+            # null/thiếu answer bị chấm sai (−1); bỏ trống chỉ 0 điểm
+            if answer.get("type") not in ("abstain", "unanswerable") and answer.get("answer") is None:
+                debug["note"] = f"answer rỗng ({answer.get('type')}) → abstain"
+                answer = {"id": item["id"], "type": "abstain"}
 
             with write_lock:
                 out_fh.write(json.dumps(answer, ensure_ascii=False) + "\n")

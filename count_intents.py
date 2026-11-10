@@ -80,7 +80,7 @@ RULES: list[tuple[str, str]] = [
     ("purchase_total", r"\bnhap\b"),
     ("stock_value", r"(gia tri|tien) .{0,20}(\bton\b|trong kho)|\bton kho .{0,20}(von|gia tri)|tien von .{0,20}lo"),
     ("+stock_qty", r"\bton\b|ton kho|trong kho|con may|het hang|chay hang|dut hang"),
-    ("price_hike", r"tang gia\b|len gia\b|doi gia\b|giam gia xuong|ngay tang\b"),
+    ("price_hike", r"tang gia\b|len gia\b|doi gia\b|giam gia xuong|ngay tang\b|(tu khi|sau khi) .{0,50}\blen [0-9.,]+ ?(k|nghin|ngan|d|dong)\b"),
     ("+cancel_rate", r"\bhuy\b"),
     ("+voucher_ship", r"voucher|phi ship|phi giao|dung diem|giam diem|tien giam"),
     ("profit_net", r"lai rong|loi nhuan rong|tru (het )?chi phi"),
