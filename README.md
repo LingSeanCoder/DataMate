@@ -29,6 +29,8 @@ Kiểm tra với đáp án train (không cần LLM): `python check_std.py --answ
 
 ## 🚀 Hướng dẫn chạy Docker
 
+> Chạy thử từng bước cho thành viên (Docker hoặc Python, có lệnh so kết quả): xem [`TEST.md`](TEST.md).
+
 Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (`colab_phase6.ipynb`).
 
 ```bash
