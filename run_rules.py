@@ -82,10 +82,26 @@ def _size_products(conn, suffix: str, F: dict) -> list[str]:
     return [r[0] for r in rows if r[0] and re.search(rf"\({suffix}\)\s*$", r[0], re.I)]
 
 
+_MEASURABLE = re.compile(r"\b(nhieu|it|cao|thap|lon|nho|chay|hot|loi|lai|dat|re|gan|som|muon|dong|lau|trung thanh|sop|doi y|"
+                         r"cham chi|ua chuong|ban gioi|dat khach|can date|moi|cu)\b|nhieu|chay|tien|doanh|don")  # lỗi gõ dính chữ
+
+
+def _qualitative(qn: str) -> bool:
+    """'ai/nào … X nhất' mà X không đo được bằng dữ liệu (thân thiện, nhiệt tình, tốt, ngon, trung thực...) -> câu định tính (§7)."""
+    if not re.search(r"\b(ai|nao|mo|gi|chi)\b", qn):
+        return False
+    for m in re.finditer(r"((?:\w+ ){0,4})(\w+) nhat\b", qn):
+        if not _MEASURABLE.search(m.group(1) + m.group(2)):
+            return True
+    return False
+
+
 def answer(q: dict, db: str) -> dict:
     text, as_of = q["question"], q["as_of_date"]
     qn = cnorm(text)
     intent = classify(text)[0]
+    if intent != "unanswerable" and _qualitative(qn):
+        return {"type": "unanswerable", "reason": "câu định tính (so sánh không đo được)"}
     if intent == "unanswerable":
         if re.search(r"\bvi\b|ly do|vi sao|tai sao", qn):  # hỏi lý do huỷ/trả: chỉ unanswerable khi shop không ghi lý do
             c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)

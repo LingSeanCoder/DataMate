@@ -6,7 +6,7 @@
 - Phase 0–3: tầng std_* (`std_layer.py`, `std_extra.py`), `time_resolver.py`, `entity.py`, `metrics.py`, router regex `run_rules.py`.
 - Phase 4: `main.py` = luật trước, chỉ câu bỏ trống mới gọi LLM (`agent.py`, `std_only=True`); `--no-llm`; build gọi luôn `std_extra`; `rulebook.md` = bản public (train → `rulebook_train.md`), main ưu tiên `<data-root>/../rulebook.md`.
 - Chấm tay 100 câu public trên bảng thô (file chỉ ở máy, gitignore: `tasks/public_check_50.md`): đúng 84% / 88% TRƯỚC sửa → độ đúng public thật ~84–88% (train 98%). Đã sửa 14 lỗi tìm được.
-- Phase 5 unanswerable: train 70/70, 0 gắn nhầm. **Train 2961/3000, điểm 2934; public 992/1000 có đáp án.**
+- Phase 5 unanswerable: train 70/70 (+ luật tổng quát: 'ai/nào … X nhất' mà X không đo được → định tính; không phụ thuộc danh sách từ train), 0 gắn nhầm. **Train 2961/3000, điểm 2934; public 992/1000 có đáp án.**
 
 **In progress:** không có. Đang chờ người dùng đồng ý chuẩn bị Phase 6.
 
