@@ -18,3 +18,7 @@ __pycache__/
 .venv/
 venv/
 *.gguf
+tmp_db_dev/
+DATASET/
+*.ipynb
+tasks/

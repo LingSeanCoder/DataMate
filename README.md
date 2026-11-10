@@ -28,24 +28,21 @@ Ví dụ: doanh thu tháng 5/2025 = `SELECT SUM(revenue) FROM std_orders WHERE i
 Kiểm tra với đáp án train (không cần LLM): `python check_std.py --answers answers.jsonl`.
 
 ## 🚀 Hướng dẫn chạy Docker
-Hệ thống đã được đóng gói hoàn chỉnh. Để chạy:
+
+Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (`colab_phase6.ipynb`).
 
 ```bash
-# Build image
-docker build -t datamate-submission .
-
-# Chạy inference (giả sử dữ liệu test nằm ở /path/to/test_data)
-docker run --gpus all --rm \
-  -v /path/to/test_data:/data \
-  -v /path/to/result_dir:/result \
-  -e LOCAL_LLM_BASE_URL=http://host.docker.internal:8000/v1 \
+docker build -t datamate-submission .                       # máy chấm x86: thêm --platform linux/amd64
+docker run --rm --network=none \
+  -v /duong/dan/bo_de:/data:ro \
+  -v /duong/dan/ket_qua:/result \
   datamate-submission
 ```
 
-Kết quả sẽ được ghi ra file `/result/submission.jsonl` (và log chi tiết ở `/result/logs/`).
-
-> **Lưu ý:** `llama-server` chạy trên máy host (hoặc container riêng) và mở cổng `8000`.
-> Nếu dùng mạng Docker nội bộ, thay `host.docker.internal` bằng tên service tương ứng.
+- `/data` là **bộ đề nguyên**: `questions.jsonl`, `data/<biz>/...`, `rulebook.md`, `calendar.csv` (rulebook và lịch của bộ đề được ưu tiên hơn bản trong image). Nếu chỉ mount các thư mục shop thì thêm `-e QUESTIONS=/duong/dan/questions.jsonl`.
+- Kết quả: `/result/submission.jsonl` (mỗi dòng `{"id","type","answer"}`), log ở `/result/logs/`, DB tạm ở `/result/tmp_db/`.
+- Đã thử: 1000 câu public, `--network=none`, 6,2 phút trên MacBook Air M3 (CPU), kết quả trùng khớp chạy ngoài Docker.
+- Biến môi trường: `WORKERS` (mặc định 4), `USE_LLM=1` (chỉ dùng khi image có llama-server — chưa có).
 
 ## 🖥️ Chạy trực tiếp (không Docker)
 

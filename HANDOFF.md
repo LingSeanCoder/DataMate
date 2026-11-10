@@ -12,7 +12,7 @@
 
 **Next steps:**
 1. Phase 6: đọc kết quả notebook → LLM chỉ được bật nếu điểm LLM thêm trên train > 0 (đúng > sai) và 2 lần chạy public giống nhau; nếu không thì nộp `--no-llm`. Chấm tay các câu public đi LLM (khoảng 8 câu).
-2. Phase 7: Dockerfile chạy `main.py` (`--network=none`), test trọn quy trình trên public; có sẵn bản `--no-llm` làm phương án dự phòng.
+2. Phase 7: ĐÃ có image chỉ-luật (`Dockerfile` + `run.sh`, mount bộ đề vào `/data`, kết quả `/result/submission.jsonl`); đã thử `--network=none` trên public: 1000/1000 trùng khớp, 6,2 phút; bản amd64 build + chạy được. CÒN: hỏi quy định nộp (đường dẫn mount, cách nộp image) và nếu Phase 6 bật LLM thì làm image CUDA (llama-server build sm_120 cho RTX 5090 + model GGUF trong image).
 
 **Decisions:** không làm router LLM (luật phủ 99% public; LLM chỉ là fallback, đo ở Phase 6). Thứ tự phase 5→6→7 theo ý người dùng (tôi từng đề xuất Docker trước vì hạn gần). Nợ chỉ có ảnh chụp cuối dữ liệu mà hỏi ngày trước → bỏ trống (`metrics.Unsure`). Shop không ghi loại thông tin → unanswerable.
 
