@@ -10,7 +10,7 @@
 - Chấm tay mẫu 3 (70 câu, 5/biz, ghi ở `tasks/public_check_50.md` – gitignore): 65/70 trước sửa. Sửa: topping ghi chung ô thành mặt hàng riêng (`std_layer.split_toppings` + `_canon_names`, dev_002); "củ" = triệu (`run_rules._amount` + 2 regex ngưỡng); "từ đầu tháng đến hết hôm nay" = tháng này (`time_resolver.py`, test mới); "% tiền bán máy" mẫu số chỉ máy mới + cũ (`run_rules.py`).
 - Hiện tại: train **2961/3000** (điểm 2934); public 0 câu bỏ trống, 30 unanswerable. Tổng 3 mẫu chấm tay (170 câu) → độ đúng ~88–93%, lỗi rải rác, không có họ nào nên abstain.
 
-**In progress:** chưa nộp lại bản mới. File đã chạy nằm ở scratchpad (mất khi hết phiên) → tạo lại bằng lệnh chạy public bên dưới.
+**In progress:** file nộp bản mới đã tạo: `../out_public_rules_v2.jsonl` (ngoài repo, 1000 dòng, đủ id, 0 null, code `64dfdab`) — chờ người dùng nộp leaderboard và báo điểm.
 
 **Next steps:**
 1. Chạy public chỉ-luật → nộp leaderboard, ghi điểm vào đây (kỳ vọng > 0.598).
