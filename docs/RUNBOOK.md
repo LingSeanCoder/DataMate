@@ -22,7 +22,7 @@ chỉ câu luật **bỏ trống** mới gọi LLM (`agent.ask`, chỉ thấy b�
 
 ```bash
 # chỉ luật (không cần GPU): build DB + std + trả lời
-python main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl \
+python src/main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl \
   --db-dir tmp_db_dev --out submission.jsonl --overwrite --workers 4 --no-llm
 # có LLM dự phòng: export LOCAL_LLM_BASE_URL=http://localhost:8000/v1 rồi bỏ --no-llm
 ```
@@ -52,7 +52,7 @@ Copy-Item .env.example .env
 ## 3. Chạy toàn bộ tập train
 
 ```powershell
-python main.py `
+python src/main.py `
   --data-root ..\..\train\train\data `
   --questions ..\..\train\train\questions.jsonl `
   --out submission.jsonl `
@@ -74,7 +74,7 @@ Muốn chạy lại từ đầu: thêm `--overwrite`.
 
 ```powershell
 # 3 câu đầu của mỗi biz, chỉ 2 biz, in SQL ra màn hình
-python main.py --data-root ..\..\train\train\data `
+python src/main.py --data-root ..\..\train\train\data `
   --questions ..\..\train\train\questions.jsonl `
   --biz biz_101,biz_123 --limit-per-biz 3 --overwrite --show-sql --workers 1
 ```
@@ -84,13 +84,13 @@ python main.py --data-root ..\..\train\train\data `
 ## 4. Build DB lẻ (debug một doanh nghiệp)
 
 ```powershell
-python data_loader.py --biz-dir ..\..\train\train\data\biz_103 --db tmp_db\biz_103.db
+python src/data_loader.py --biz-dir ..\..\train\train\data\biz_103 --db tmp_db\biz_103.db
 ```
 
 Build tất cả nhưng không chạy câu hỏi:
 
 ```powershell
-python data_loader.py --data-root ..\..\train\train\data --out-dir tmp_db
+python src/data_loader.py --data-root ..\..\train\train\data --out-dir tmp_db
 ```
 
 Xem nhanh schema + giá trị phân loại:
@@ -102,7 +102,7 @@ python -c "import sqlite3;c=sqlite3.connect('tmp_db/biz_103.db');[print(r) for r
 Hỏi thử 1 câu:
 
 ```powershell
-python agent.py "Doanh thu tháng 6/2025 là bao nhiêu?" `
+python src/agent.py "Doanh thu tháng 6/2025 là bao nhiêu?" `
   --db tmp_db\biz_103.db `
   --readme ..\..\train\train\data\biz_103\README.md `
   --date 2026-06-24 --show-debug
@@ -207,14 +207,14 @@ Tăng tốc:
 
 ```powershell
 # Nếu đã nâng tier Groq
-python main.py --itpm 200000 --workers 6 --full-rulebook
+python src/main.py --itpm 200000 --workers 6 --full-rulebook
 ```
 
 Hoặc chạy song song nhiều tiến trình, mỗi tiến trình một nhóm biz:
 
 ```powershell
-python main.py --biz biz_101,biz_102,biz_103 --out sub_a.jsonl --log log_a.jsonl
-python main.py --biz biz_104,biz_105,biz_106 --out sub_b.jsonl --log log_b.jsonl
+python src/main.py --biz biz_101,biz_102,biz_103 --out sub_a.jsonl --log log_a.jsonl
+python src/main.py --biz biz_104,biz_105,biz_106 --out sub_b.jsonl --log log_b.jsonl
 # rồi nối các file submission lại
 ```
 

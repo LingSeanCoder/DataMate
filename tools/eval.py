@@ -5,6 +5,7 @@
 Điểm: đúng +1, sai -1, bỏ trống/abstain 0. In theo intent (count_intents) và theo biz.
 """
 from __future__ import annotations
+import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))  # dùng module trong src/
 
 import argparse
 import json

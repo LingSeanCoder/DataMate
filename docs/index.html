@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DataMate - Hướng dẫn</title>
+<style>
+:root{--bg:#fbfbfa;--fg:#1d1d1f;--muted:#6e6e73;--line:#e2e2e6;--accent:#0b5cad;--code:#f1f1f4;--th:#ebeef3}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121214;--fg:#e6e6e8;--muted:#9a9aa3;--line:#2c2c31;--accent:#7ab8ff;--code:#1e1e23;--th:#23252c}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+header.top{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.brand{font-weight:700;white-space:nowrap}
+#q{flex:1;min-width:0;max-width:420px;margin-left:auto;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--code);color:var(--fg);font:inherit}
+.menu{display:none;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--code);color:var(--fg);font:inherit;cursor:pointer}
+.wrap{display:grid;grid-template-columns:230px minmax(0,1fr);max-width:1180px;margin:0 auto}
+nav#nav{position:sticky;top:60px;align-self:start;height:calc(100vh - 60px);overflow:auto;padding:16px 12px;border-right:1px solid var(--line)}
+nav#nav a{display:block;padding:8px 10px;border-radius:8px;color:var(--fg);text-decoration:none}
+nav#nav a:hover{background:var(--code)}
+nav#nav a.active{background:var(--code);color:var(--accent);font-weight:600}
+main#content{min-width:0;padding:24px 28px 80px;overflow-wrap:anywhere}
+h1{font-size:1.9rem;line-height:1.25;margin:.2em 0 .6em}
+h2{font-size:1.4rem;margin:1.6em 0 .5em;padding-bottom:.25em;border-bottom:1px solid var(--line)}
+h3{font-size:1.15rem;margin:1.4em 0 .4em}
+h2 small{color:var(--muted);font-weight:400;font-size:.9rem}
+p,ul,ol,table,pre,blockquote{margin:.7em 0}
+li{margin:.3em 0}
+a{color:var(--accent)}
+hr{border:0;border-top:1px solid var(--line);margin:1.5em 0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;background:var(--code);padding:.1em .35em;border-radius:5px}
+pre{position:relative;margin:.9em 0;background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+pre code{background:none;padding:0;font-size:.88rem;line-height:1.5;white-space:pre}
+.copy{position:absolute;top:8px;right:8px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:.8rem;cursor:pointer}
+.tbl{overflow-x:auto;margin:.9em 0;border:1px solid var(--line);border-radius:10px}
+table{width:max-content;min-width:100%;border-collapse:collapse;font-size:.94rem}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;max-width:44ch}
+th{background:var(--th);font-weight:600}
+tr:last-child td{border-bottom:0}
+blockquote{margin-left:0;padding:8px 14px;border-left:4px solid var(--accent);background:var(--code);border-radius:0 8px 8px 0}
+.empty{color:var(--muted)}
+@media (max-width:859px){
+  .menu{display:inline-block}
+  #q{max-width:none;margin-left:0;flex-basis:100%}
+  .wrap{grid-template-columns:1fr}
+  nav#nav{display:none;position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  nav#nav.open{display:block}
+  main#content{padding:18px 16px 60px}
+  h1{font-size:1.6rem}
+  pre code{font-size:.82rem}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <button id="menu" class="menu" type="button" aria-expanded="false" aria-controls="nav">Mục lục</button>
+  <div class="brand">DataMate · Hướng dẫn</div>
+  <input id="q" type="search" placeholder="Tìm từ khoá…" aria-label="Tìm từ khoá">
+</header>
+<div class="wrap">
+  <nav id="nav" aria-label="Mục lục"></nav>
+  <main id="content"></main>
+</div>
+
+<script type="text/plain" id="md-tong-quan"># DataMate - Zalo AI Challenge 2026
+
+## 📌 Giới thiệu
+Đây là mã nguồn giải pháp cho bài toán Text-to-SQL (DataMate). Hệ thống sử dụng kiến trúc Agent Schema-Agnostic, có khả năng tự động nhận diện cấu trúc bảng/cột của bất kỳ doanh nghiệp nào mà không cần hardcode. Agent tự động sinh Dynamic Few-shot để hướng dẫn mô hình ngôn ngữ viết câu lệnh SQLite chính xác.
+
+## 🧠 Khai báo Model (Theo Rule 2)
+Hệ thống chỉ sử dụng **DUY NHẤT 1 model** tại thời điểm inference:
+- **Model:** `Qwen2.5-Coder-14B-Instruct` (định dạng GGUF, lượng tử hóa Q4_K_M).
+- **Số lượng tham số:** 14 tỷ (< 15 tỷ, thỏa mãn điều kiện cuộc thi).
+- **Engine:** `llama.cpp` (biên dịch từ source với CUDA hỗ trợ kiến trúc Blackwell RTX 5090).
+
+## ⚙️ Kiến trúc Pipeline
+1. **Data Loading:** Đọc file Excel/CSV, làm sạch dữ liệu (tiền tệ, ngày tháng) và đẩy vào SQLite (`src/data_loader.py`).
+2. **Schema Linking:** Quét DB để tự động nhận diện vai trò các bảng (Bảng Đơn hàng, Bảng Danh mục, Bảng Lô hàng...) dựa trên kiểu dữ liệu và giao giá trị.
+3. **Prompting:** Sinh System Prompt động kèm Few-shot mẫu dựa trên schema thực tế của từng biz.
+4. **Execution:** Gọi Local LLM Server (`llama-server`) qua API OpenAI-compatible để sinh SQL, chạy thử trên SQLite, tự động sửa lỗi (self-correction) và format JSON kết quả.
+
+### Bảng chuẩn `std_*` (tạo tự động cuối `build_database`, `src/std_layer.py`)
+Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe (rulebook §3, §4.1). Ưu tiên query 2 bảng này thay vì bảng gốc.
+
+| Bảng | Cột | Ghi chú |
+|---|---|---|
+| `std_orders` (1 dòng/đơn) | `order_id, order_date` (YYYY-MM-DD), `order_time` (HH:MM:SS), `status_raw, status_norm, is_valid, customer_id, customer_name, pay_method, revenue, n_lines` | `status_norm` ∈ `hoàn thành`/`huỷ`/`trả hàng`/`đang giao`; đơn có bất kỳ dòng trả = `trả hàng`. `is_valid=1` = không huỷ, không trả (đang giao vẫn tính). `revenue` = tổng thành tiền dòng hàng (đã trừ giảm giá dòng, chưa trừ giảm cả đơn, không ship, không VAT, có phí phục vụ). `pay_method` là giá trị gốc, chưa chuẩn hoá. |
+| `std_lines` (1 dòng/dòng hàng) | `order_id, line_no, product_id, product_name, unit, qty, qty_base, line_revenue, line_cost, is_service_fee` | `qty_base` = số lượng quy về đơn vị cơ bản. `product_name` đã gom các cách viết hoa/thường/dấu. `is_service_fee=1` là "Phí phục vụ": tính vào doanh thu, không xếp hạng mặt hàng. `line_cost = qty × giá vốn ghi trên dòng` (NULL nếu shop không có). |
+| `_meta_std` | `role, source` | Cột gốc nào được dùng cho từng vai trò, để debug. |
+
+Ví dụ: doanh thu tháng 5/2025 = `SELECT SUM(revenue) FROM std_orders WHERE is_valid=1 AND order_date BETWEEN '2025-05-01' AND '2025-05-31'`.
+Kiểm tra với đáp án train (không cần LLM): `python tools/check_std.py --answers answers.jsonl`.
+
+## 🚀 Hướng dẫn chạy Docker
+
+> Chạy thử từng bước cho thành viên (Docker hoặc Python, có lệnh so kết quả): xem [`docs/TEST.md`](docs/TEST.md).
+
+Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `src/metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (đã đo: LLM làm giảm điểm nên tắt).
+
+```bash
+docker build -t datamate-submission .                       # máy chấm x86: thêm --platform linux/amd64
+docker run --rm --network=none \
+  -v /duong/dan/bo_de:/data:ro \
+  -v /duong/dan/ket_qua:/result \
+  datamate-submission
+```
+
+- `/data` là **bộ đề nguyên**: `questions.jsonl`, `data/<biz>/...`, `rulebook.md`, `calendar.csv` (rulebook và lịch của bộ đề được ưu tiên hơn bản trong image). Nếu chỉ mount các thư mục shop thì thêm `-e QUESTIONS=/duong/dan/questions.jsonl`.
+- Kết quả: `/result/submission.jsonl` (mỗi dòng `{"id","type","answer"}`), log ở `/result/logs/`, DB tạm ở `/result/tmp_db/`.
+- Đã thử: 1000 câu public, `--network=none`, 6,2 phút trên MacBook Air M3 (CPU), kết quả trùng khớp chạy ngoài Docker.
+- Biến môi trường: `WORKERS` (mặc định 4), `USE_LLM=1` (chỉ dùng khi image có llama-server — chưa có).
+
+## 🖥️ Chạy trực tiếp (không Docker)
+
+```bash
+# 1. Cài thư viện
+pip install -r requirements.txt
+
+# 2. Khởi động llama-server với model GGUF
+llama-server -m /path/to/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf \
+  --host 0.0.0.0 --port 8000 -c 8192 -ngl 99
+
+# 3. Chạy inference
+python src/main.py --data-root ./data --skip-build \
+  --out ./submission.jsonl --log ./run_log.jsonl
+```
+
+Chạy thử nhanh 5 câu mỗi biz trước khi chạy full:
+
+```bash
+python src/main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
+```
+
+## 🔧 Biến môi trường
+
+| Biến | Ý nghĩa |
+|---|---|
+| `LOCAL_LLM_BASE_URL` | Base URL của `llama-server` (mặc định `http://localhost:8000/v1`) |
+| `LOCAL_LLM_API_KEY` | API key cho server local (mặc định `local`) |
+| `LOCAL_LLM_MODEL` | Tên model báo cho server (mặc định `local`) |
+| `NIM_API_KEY` | (Dự phòng) API key NVIDIA NIM nếu không dùng server local |
+| `DATAMATE_PROMPT_BUDGET` | Trần token input mỗi câu (mặc định 6300) |
+
+## 📁 Cấu trúc thư mục
+
+```
+.
+├── src/            Mã nguồn chính (chạy cả trong Docker)      → src/README.md
+├── tools/          Công cụ chấm điểm / kiểm tra dữ liệu       → tools/README.md
+├── tests/          Test tự động (không cần mạng, không GPU)   → tests/README.md
+├── docs/           Tài liệu kiến trúc, runbook, handoff       → docs/README.md
+├── data/           Dữ liệu mẫu 30 cửa hàng (bộ train)         → data/README.md
+├── rulebook.md     Luật nghiệp vụ của bộ đề (đọc lúc chạy)
+├── calendar.csv    Lịch ngày lễ/sự kiện (đọc lúc chạy)
+├── run.sh          Điểm vào của Docker
+├── Dockerfile / .dockerignore / requirements.txt
+└── docs/index.html Trang HTML xem nhanh toàn bộ hướng dẫn
+```
+
+Mọi lệnh chạy từ **thư mục gốc repo** (vì `calendar.csv`, `rulebook.md` đọc theo thư mục hiện tại).
+
+## 🔎 Xem hướng dẫn dễ hơn
+Mở `docs/index.html` bằng trình duyệt (không cần server).
+</script>
+<script type="text/plain" id="md-src"># src/ — Mã nguồn chính
+
+Pipeline: **đọc dữ liệu → bảng chuẩn `std_*` → luật + metrics → đáp án**. Bản nộp chạy `--no-llm` (chỉ luật). Chạy từ thư mục gốc repo: `python src/main.py -h`.
+
+| File | Chức năng |
+|---|---|
+| `main.py` | Điểm vào. Chạy hàng loạt `questions.jsonl` → `submission.jsonl`, nhóm theo shop, resume được, chặn đáp án null. |
+| `data_loader.py` | Đọc Excel/CSV của mỗi shop, làm sạch tiền/ngày, tạo 1 DB SQLite mỗi shop (`build_database`). |
+| `std_layer.py` | Tạo `std_orders` (1 dòng/đơn) và `std_lines` (1 dòng/dòng hàng) với tên cột cố định cho mọi shop. |
+| `std_extra.py` | Bảng phụ: tiền đơn, phiếu thu/công nợ, nhập hàng. |
+| `schema_roles.py` | Đoán vai trò từng bảng/cột theo tên cột, kiểu, độ duy nhất (không theo tên shop). |
+| `run_rules.py` | Bộ định tuyến regex: câu hỏi → hàm trong `metrics.py` → đáp án. Có thể chạy riêng để chấm train. |
+| `metrics.py` | Hàm tính số liệu (doanh thu, top-k, tồn kho, công nợ, nhập hàng, tăng giá…). Deterministic. |
+| `time_resolver.py` | Hiểu cách nói thời gian ("tháng trước", "tuần này", "Q1/2026", teencode…). |
+| `entity.py` | Rút tên hàng/khách/hoạt chất từ câu hỏi và khớp với giá trị thật trong DB. |
+| `formatter.py` | Định dạng đáp án theo rulebook §9 (làm tròn, đơn vị, danh sách). |
+| `count_intents.py` | Phân loại thô câu hỏi theo họ intent; cũng là bộ chuẩn hoá câu dùng chung. |
+| `agent.py` | Nhánh LLM text-to-SQL (Qwen qua llama-server). **Đang tắt** trong bản nộp. |
+
+## Lệnh hay dùng
+```bash
+# Chạy 1000 câu public (luật, không LLM)
+python src/main.py --data-root <public_test>/data --questions <public_test>/questions.jsonl \
+  --db-dir tmp_db_dev --rebuild --no-llm --overwrite --out submission.jsonl --log run_log.jsonl
+
+# Chấm luật trên train (kỳ vọng 2962/3000)
+python -W ignore src/run_rules.py --answers <train>/answers.jsonl --wrong 0 | tail -1
+
+# Dựng DB cho 1 shop
+python src/data_loader.py --biz-dir data/biz_103 --db tmp_db/biz_103.db
+```
+</script>
+<script type="text/plain" id="md-tools"># tools/ — Công cụ chấm điểm & kiểm tra
+
+Không nằm trong Docker. Chạy từ thư mục gốc repo.
+
+| File | Dùng để | Lệnh |
+|---|---|---|
+| `eval.py` | Chấm `submission.jsonl` với `answers.jsonl` theo rulebook §9 (đúng/sai/bỏ trống). | `python tools/eval.py --sub submission.jsonl --answers answers.jsonl --wrong 30` |
+| `check_std.py` | Đối chiếu doanh thu `std_*` với đáp án train, không cần LLM. | `python tools/check_std.py --answers answers.jsonl` |
+| `validate_std.py` | Đối soát `std_*` với cột tổng tiền do chính file ghi, cho mọi shop (kỳ vọng 14/14). | `python -W ignore tools/validate_std.py --db-dir tmp_db_dev` |
+| `validate_db.py` | Kiểm định chất lượng các DB do `data_loader` tạo. | `python tools/validate_db.py` |
+| `inventory.py` | Dựng DB cho mọi shop và in bảng kiểm kê schema. | `python tools/inventory.py --data-root <data> --db-dir tmp_db` |
+</script>
+<script type="text/plain" id="md-tests"># tests/ — Test tự động
+
+Chạy từ thư mục gốc repo; mỗi file in `N/N pass`.
+
+| File | Kiểm tra | Kỳ vọng |
+|---|---|---|
+| `test_time_resolver.py` | `time_resolver` trên 34 câu train thật (kỳ vọng tính tay). | 37/37 |
+| `test_time_public.py` | `time_resolver` trên câu public có teencode. | 60/60 |
+| `test_phase2.py` | `formatter` (§9) + `entity` (khớp tên thật trong DB; cần `tmp_db/` đã build). | 14/14 + 14/14 + 30/30 |
+
+```bash
+python tests/test_time_resolver.py && python tests/test_time_public.py && python -W ignore tests/test_phase2.py
+```
+</script>
+<script type="text/plain" id="md-docs"># docs/ — Tài liệu
+
+| File | Nội dung | Ai đọc |
+|---|---|---|
+| `TEST.md` | Chạy thử bộ đề public bằng Docker hoặc Python, rồi so với file chuẩn. | Thành viên mới |
+| `RUNBOOK.md` | Hướng dẫn chạy chi tiết (Windows/macOS, tham số `main.py`, `agent.py`). | Người chạy |
+| `ARCHITECTURE.md` | Luồng chạy bên trong `data_loader` / `agent` / `main`. | Người sửa code |
+| `HANDOFF.md` | Trạng thái hiện tại, quyết định, bước tiếp theo. | Đọc đầu phiên mới |
+| `rulebook_train.md` | Luật nghiệp vụ của bộ train (tham khảo; bản chạy thật là `rulebook.md` ở gốc). | Người sửa luật |
+| `index.html` | Trang xem nhanh tất cả README. | Mọi người |
+</script>
+<script type="text/plain" id="md-data"># data/ — Dữ liệu mẫu (bộ train)
+
+30 thư mục `biz_101 … biz_130`, mỗi thư mục là một cửa hàng với file Excel/CSV thô và một `README.md` mô tả cột, quy đổi đơn vị, ngày cuối dữ liệu. Mỗi shop có cấu trúc khác nhau — code không hard-code tên file/cột.
+
+Bộ public (`dev_001 … dev_014`) và `answers.jsonl` **không** nằm trong repo (xem `docs/TEST.md`).
+</script>
+<script type="text/plain" id="md-test"># Chạy thử DataMate trên máy bạn (bản chỉ-luật, không cần GPU)
+
+Mục tiêu: chạy lại toàn bộ 1000 câu public trên máy bạn, ra `submission.jsonl`, rồi so với file chuẩn nhóm gửi để chắc code chạy giống nhau ở mọi máy (BTC yêu cầu chạy 2 lần phải ra cùng kết quả).
+Thời gian: ~10 phút cài đặt + 6–20 phút chạy. Không cần mạng lúc chạy, không cần GPU.
+
+## 1. Chuẩn bị
+
+- **Code:** `git clone https://github.com/LingSeanCoder/DataMate.git` (hoặc trên GitHub bấm *Code → Download ZIP* rồi giải nén).
+- **Bộ đề public** (nhóm gửi qua Drive, không có trong repo). Giải nén ra một thư mục, ví dụ `public_test`, bên trong phải có đúng:
+  ```
+  public_test/
+    questions.jsonl
+    rulebook.md
+    calendar.csv
+    data/            (14 thư mục dev_001 … dev_014)
+  ```
+- **File chuẩn để so:** `out_public_rules_v2.jsonl` (nhóm gửi kèm).
+- Máy cần **một trong hai**: Docker Desktop (cách A — khuyên dùng, nhất là Windows), hoặc Python 3.9+ (cách B).
+
+## 2A. Chạy bằng Docker (giống lúc nộp thật)
+
+Mở Terminal (macOS/Linux) hoặc PowerShell (Windows) trong thư mục `DataMate`:
+
+```bash
+docker build --platform linux/amd64 -t datamate-submission .
+```
+
+macOS / Linux:
+```bash
+docker run --rm --network=none \
+  -v /duong/dan/toi/public_test:/data:ro \
+  -v "$(pwd)/ket_qua":/result \
+  datamate-submission
+```
+
+Windows (PowerShell, viết một dòng):
+```powershell
+docker run --rm --network=none -v C:\duong\dan\toi\public_test:/data:ro -v ${PWD}\ket_qua:/result datamate-submission
+```
+
+Xong khi thấy dòng `Hoàn tất: 1000 câu mới ...`. Kết quả: `ket_qua/submission.jsonl`, log ở `ket_qua/logs/`.
+
+## 2B. Chạy bằng Python (không Docker)
+
+```bash
+cd DataMate
+python -m venv .venv
+# macOS/Linux: source .venv/bin/activate      Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python src/main.py --data-root /duong/dan/toi/public_test/data \
+  --questions /duong/dan/toi/public_test/questions.jsonl \
+  --db-dir tmp_db_dev --rebuild --no-llm --overwrite \
+  --out submission.jsonl --log run_log.jsonl
+```
+
+Lưu ý: luôn có `--no-llm` (bản nộp không dùng LLM) và `--rebuild` ở lần chạy đầu.
+
+## 3. So với file chuẩn
+
+Đặt `out_public_rules_v2.jsonl` cạnh file kết quả, chạy (sửa đường dẫn nếu khác):
+
+```bash
+python -c "import json; L=lambda p:{(r:=json.loads(l))['id']:r for l in open(p,encoding='utf-8')}; a=L('out_public_rules_v2.jsonl'); b=L('ket_qua/submission.jsonl'); d=[k for k in a if a[k]!=b.get(k)]; print(len(b),'dòng; lệch',len(d)); [print(k,a[k],'|',b.get(k)) for k in d[:10]]"
+```
+
+(Chạy cách B thì thay `ket_qua/submission.jsonl` bằng `submission.jsonl`. Lệnh cần Python 3.8+.)
+
+**Kỳ vọng:** `1000 dòng; lệch 0`.
+
+## 4. Gửi lại cho nhóm
+
+1. Kết quả dòng so sánh ở bước 3 (và các dòng lệch nếu có).
+2. Thời gian chạy, máy gì (Windows/macOS, CPU, RAM), chạy cách A hay B.
+3. Nếu lỗi: chụp màn hình đoạn lỗi cuối + gửi file `run_log.jsonl` (hoặc `ket_qua/logs/`).
+
+## Lỗi hay gặp
+
+| Triệu chứng | Cách xử lý |
+|---|---|
+| `thiếu questions.jsonl` khi chạy Docker | Mount sai thư mục: `-v` phải trỏ tới thư mục **chứa** `questions.jsonl`, không phải thư mục `data` |
+| Docker báo không tìm thấy đường dẫn trên Windows | Dùng đường dẫn đầy đủ `C:\...`, không có dấu cách; hoặc bật chia sẻ ổ đĩa trong Docker Desktop |
+| `ModuleNotFoundError` (cách B) | Chưa kích hoạt `.venv` hoặc chưa `pip install -r requirements.txt` |
+| Chạy rất chậm / máy treo | Thêm `-e WORKERS=2` (Docker) hoặc `--workers 2` (Python) |
+| Lệch vài dòng | Gửi lại các dòng lệch — có thể do khác hệ điều hành, nhóm cần biết để sửa trước khi nộp |
+</script>
+
+<script>
+(function(){
+var SECTIONS=[['tong-quan','Tổng quan','README.md'],['src','src','src/README.md'],['tools','tools','tools/README.md'],['tests','tests','tests/README.md'],['docs','docs','docs/README.md'],['data','data','data/README.md'],['test','Chạy thử TEST','docs/TEST.md']];
+var nav=document.getElementById('nav'), content=document.getElementById('content'), q=document.getElementById('q'), menu=document.getElementById('menu');
+var LINKMAP={}, html={}, blocks={};
+SECTIONS.forEach(function(s){LINKMAP[s[2]]=s[0]});
+
+function fold(s){return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d')}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function inl(s){
+  var codes=[];
+  var t=esc(s).replace(/`([^`]+)`/g,function(_,c){codes.push(c);return '\u0001'+(codes.length-1)+'\u0001'});
+  return t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,function(_,txt,href){
+      var ext=/^https?:/.test(href), f=LINKMAP[href];
+      return '<a href="'+(f?'#'+f:(ext?href:'#'))+'"'+(ext?' target="_blank" rel="noopener"':'')+'>'+txt+'</a>';
+    })
+    .replace(/\u0001(\d+)\u0001/g,function(_,n){return '<code>'+codes[n]+'</code>'});
+}
+function md(src){
+  var L=src.replace(/\r/g,'').split('\n'), out=[], i=0, list=null, li=false, para=[], m;
+  var flush=function(){if(para.length){out.push('<p>'+inl(para.join(' '))+'</p>');para=[]}};
+  var endList=function(){if(list){if(li)out.push('</li>');out.push('</'+list+'>');list=null;li=false}};
+  var cells=function(s){return s.trim().replace(/^\|/,'').replace(/\|\s*$/,'').split('|').map(function(c){return c.trim()})};
+  while(i<L.length){
+    var line=L[i];
+    if(!line.trim()){flush();endList();i++;continue}
+    if((m=line.match(/^(\s*)```/))){
+      flush();var ind=m[1].length,buf=[];i++;
+      while(i<L.length&&!/^\s*```\s*$/.test(L[i])){buf.push(L[i].replace(new RegExp('^\\s{0,'+ind+'}'),''));i++}
+      i++;
+      out.push('<pre><button class="copy" type="button">Sao chép</button><code>'+esc(buf.join('\n'))+'</code></pre>');
+      continue;
+    }
+    if((m=line.match(/^(#{1,6})\s+(.*)$/))){flush();endList();out.push('<h'+m[1].length+'>'+inl(m[2])+'</h'+m[1].length+'>');i++;continue}
+    if(/^\s*\|/.test(line)&&i+1<L.length&&/^\s*\|?[\s:|-]+\|?\s*$/.test(L[i+1])&&L[i+1].indexOf('|')>-1&&L[i+1].indexOf('-')>-1){
+      flush();endList();
+      var h='<div class="tbl"><table><thead><tr>'+cells(line).map(function(c){return '<th>'+inl(c)+'</th>'}).join('')+'</tr></thead><tbody>';
+      i+=2;
+      while(i<L.length&&/^\s*\|/.test(L[i])){h+='<tr>'+cells(L[i]).map(function(c){return '<td>'+inl(c)+'</td>'}).join('')+'</tr>';i++}
+      out.push(h+'</tbody></table></div>');continue;
+    }
+    if(/^\s*>/.test(line)){
+      flush();endList();var b=[];
+      while(i<L.length&&/^\s*>/.test(L[i])){b.push(L[i].replace(/^\s*>\s?/,''));i++}
+      out.push('<blockquote>'+inl(b.join(' '))+'</blockquote>');continue;
+    }
+    if(/^\s*(-{3,}|\*{3,})\s*$/.test(line)){flush();endList();out.push('<hr>');i++;continue}
+    if((m=line.match(/^\s*([-*]|\d+\.)\s+(.*)$/))){
+      flush();var type=/\d/.test(m[1])?'ol':'ul';
+      if(list!==type){endList();out.push('<'+type+'>');list=type}
+      if(li)out.push('</li>');
+      out.push('<li>'+inl(m[2]));li=true;i++;continue;
+    }
+    if(list&&/^\s+\S/.test(line)){out.push(' '+inl(line.trim()));i++;continue}
+    endList();para.push(line.trim());i++;
+  }
+  flush();endList();
+  return out.join('\n');
+}
+
+SECTIONS.forEach(function(s){
+  html[s[0]]=md(document.getElementById('md-'+s[0]).textContent);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=html[s[0]];
+  blocks[s[0]]=Array.prototype.map.call(tmp.children,function(e){
+    return {h:e.outerHTML, t:fold(e.textContent.replace(/Sao chép/g,''))};
+  });
+  var a=document.createElement('a');
+  a.href='#'+s[0];a.textContent=s[1];a.dataset.id=s[0];
+  nav.appendChild(a);
+});
+
+function cur(){var h=location.hash.slice(1);return html[h]!=null?h:'tong-quan'}
+function draw(){
+  var id=cur(), key=fold(q.value.trim()), out='';
+  nav.querySelectorAll('a').forEach(function(a){a.classList.toggle('active',a.dataset.id===id)});
+  if(!key){
+    out=html[id];
+    SECTIONS.forEach(function(s){if(s[0]===id)document.title='DataMate - '+s[1]});
+  }else{
+    var n=0;
+    SECTIONS.forEach(function(s){
+      var hits=blocks[s[0]].filter(function(b){return b.t.indexOf(key)>-1});
+      if(hits.length){n+=hits.length;out+='<h2><a href="#'+s[0]+'">'+s[1]+'</a> <small>('+hits.length+')</small></h2>'+hits.map(function(b){return b.h}).join('')}
+    });
+    if(!n)out='<p class="empty">Không có kết quả.</p>';
+  }
+  content.innerHTML=out;
+}
+function go(){
+  q.value='';draw();window.scrollTo(0,0);
+  nav.classList.remove('open');menu.setAttribute('aria-expanded','false');
+}
+
+window.addEventListener('hashchange',go);
+q.addEventListener('input',draw);
+menu.addEventListener('click',function(){
+  var o=nav.classList.toggle('open');menu.setAttribute('aria-expanded',String(o));
+});
+document.addEventListener('click',function(e){
+  var a=e.target.closest&&e.target.closest('a[href^="#"]');
+  if(a&&a.getAttribute('href')===location.hash){e.preventDefault();go()}
+  var b=e.target.closest&&e.target.closest('.copy');
+  if(!b)return;
+  var txt=b.parentNode.querySelector('code').textContent;
+  var done=function(ok){b.textContent=ok?'Đã chép':'Không chép được';setTimeout(function(){b.textContent='Sao chép'},1500)};
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(txt).then(function(){done(true)},function(){done(false)});
+  }else{
+    var t=document.createElement('textarea');
+    t.value=txt;t.style.position='fixed';t.style.opacity='0';
+    document.body.appendChild(t);t.select();
+    var ok=false;try{ok=document.execCommand('copy')}catch(err){}
+    t.remove();done(ok);
+  }
+});
+draw();
+})();
+</script>
+</body>
+</html>

@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY *.py calendar.csv rulebook.md run.sh ./
+COPY src/*.py calendar.csv rulebook.md run.sh ./
 RUN chmod +x run.sh && mkdir -p /data /result
 
 ENTRYPOINT ["./run.sh"]

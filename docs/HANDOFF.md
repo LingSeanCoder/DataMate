@@ -1,5 +1,7 @@
 # HANDOFF — DataMate (Zalo AI Challenge 2026) — cập nhật 2026-11-11 (tối)
 
+**Cấu trúc thư mục (2026-11-11):** code ở `src/`, công cụ `tools/`, test `tests/`, tài liệu `docs/`; chạy lệnh từ thư mục gốc (vd `python src/main.py`, `python tests/test_time_resolver.py`). Các lệnh bên dưới đã đổi theo.
+
 **Goal:** trả lời câu hỏi số liệu bán hàng theo rulebook; nộp Docker (offline, ≤15B, 2×RTX 5090, ≤6h) **trước 16/11/2026**. Mỗi bước: báo cáo, commit + push `main` (đã được cho phép), hỏi trước khi sang việc lớn tiếp theo. Trả lời tiếng Việt. Lịch sử cũ: `tasks/HANDOFF.md`.
 
 **Done (đã push lên `main`):**
@@ -25,10 +27,10 @@
 
 **Verify with:**
 ```
-python main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl --db-dir tmp_db_dev --no-llm --overwrite --out <out.jsonl> --log <log.jsonl>   # thêm --rebuild nếu đổi std_layer/std_extra; ~5 phút
-.venv/bin/python -W ignore run_rules.py --answers ../DATASET/train/answers.jsonl --wrong 0 | tail -1   # kỳ vọng 2962/3000 (std_extra đổi: chạy `python std_extra.py tmp_db/*.db` trước)
-.venv/bin/python test_time_resolver.py; .venv/bin/python test_time_public.py; .venv/bin/python -W ignore test_phase2.py
-.venv/bin/python -W ignore validate_std.py --db-dir tmp_db_dev   # 14/14
+python src/main.py --data-root ../DATASET/public_test/data --questions ../DATASET/public_test/questions.jsonl --db-dir tmp_db_dev --no-llm --overwrite --out <out.jsonl> --log <log.jsonl>   # thêm --rebuild nếu đổi std_layer/std_extra; ~5 phút
+.venv/bin/python -W ignore src/run_rules.py --answers ../DATASET/train/answers.jsonl --wrong 0 | tail -1   # kỳ vọng 2962/3000 (std_extra đổi: chạy `python std_extra.py tmp_db/*.db` trước)
+.venv/bin/python tests/test_time_resolver.py; .venv/bin/python tests/test_time_public.py; .venv/bin/python -W ignore tests/test_phase2.py
+.venv/bin/python -W ignore tools/validate_std.py --db-dir tmp_db_dev   # 14/14
 ```
 **Lưu ý:** MacBook Air M3 16GB, không chạy song song nhiều build. Repo GitHub PUBLIC: không commit đáp án public, đường dẫn máy, SĐT. Push từng bị chặn vì email riêng tư (GH007) — nếu lặp lại, hỏi người dùng.
 

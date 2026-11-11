@@ -20,6 +20,7 @@ Chạy:
     python validate_db.py --only biz_124     # 1 doanh nghiệp
     python validate_db.py --db-dir tmp_db --out validation_report.html
 """
+import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))  # dùng module trong src/
 
 from __future__ import annotations
 

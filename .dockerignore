@@ -5,10 +5,6 @@ tmp_db/
 *.xlsx
 *.xls
 *.log
-check_schema.py
-debug.py
-check_score.py
-setup_db.py
 *.report.json
 .schema_cache.json
 __pycache__/

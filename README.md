@@ -10,13 +10,13 @@ Hệ thống chỉ sử dụng **DUY NHẤT 1 model** tại thời điểm infer
 - **Engine:** `llama.cpp` (biên dịch từ source với CUDA hỗ trợ kiến trúc Blackwell RTX 5090).
 
 ## ⚙️ Kiến trúc Pipeline
-1. **Data Loading:** Đọc file Excel/CSV, làm sạch dữ liệu (tiền tệ, ngày tháng) và đẩy vào SQLite (`data_loader.py`).
+1. **Data Loading:** Đọc file Excel/CSV, làm sạch dữ liệu (tiền tệ, ngày tháng) và đẩy vào SQLite (`src/data_loader.py`).
 2. **Schema Linking:** Quét DB để tự động nhận diện vai trò các bảng (Bảng Đơn hàng, Bảng Danh mục, Bảng Lô hàng...) dựa trên kiểu dữ liệu và giao giá trị.
 3. **Prompting:** Sinh System Prompt động kèm Few-shot mẫu dựa trên schema thực tế của từng biz.
 4. **Execution:** Gọi Local LLM Server (`llama-server`) qua API OpenAI-compatible để sinh SQL, chạy thử trên SQLite, tự động sửa lỗi (self-correction) và format JSON kết quả.
 
-### Bảng chuẩn `std_*` (tạo tự động cuối `build_database`, `std_layer.py`)
-Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe (datamate.md §3, §4.1). Ưu tiên query 2 bảng này thay vì bảng gốc.
+### Bảng chuẩn `std_*` (tạo tự động cuối `build_database`, `src/std_layer.py`)
+Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe (rulebook §3, §4.1). Ưu tiên query 2 bảng này thay vì bảng gốc.
 
 | Bảng | Cột | Ghi chú |
 |---|---|---|
@@ -25,13 +25,13 @@ Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe 
 | `_meta_std` | `role, source` | Cột gốc nào được dùng cho từng vai trò, để debug. |
 
 Ví dụ: doanh thu tháng 5/2025 = `SELECT SUM(revenue) FROM std_orders WHERE is_valid=1 AND order_date BETWEEN '2025-05-01' AND '2025-05-31'`.
-Kiểm tra với đáp án train (không cần LLM): `python check_std.py --answers answers.jsonl`.
+Kiểm tra với đáp án train (không cần LLM): `python tools/check_std.py --answers answers.jsonl`.
 
 ## 🚀 Hướng dẫn chạy Docker
 
-> Chạy thử từng bước cho thành viên (Docker hoặc Python, có lệnh so kết quả): xem [`TEST.md`](TEST.md).
+> Chạy thử từng bước cho thành viên (Docker hoặc Python, có lệnh so kết quả): xem [`docs/TEST.md`](docs/TEST.md).
 
-Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (`colab_phase6.ipynb`).
+Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `src/metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (đã đo: LLM làm giảm điểm nên tắt).
 
 ```bash
 docker build -t datamate-submission .                       # máy chấm x86: thêm --platform linux/amd64
@@ -57,14 +57,14 @@ llama-server -m /path/to/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf \
   --host 0.0.0.0 --port 8000 -c 8192 -ngl 99
 
 # 3. Chạy inference
-python main.py --data-root ./data --skip-build \
+python src/main.py --data-root ./data --skip-build \
   --out ./submission.jsonl --log ./run_log.jsonl
 ```
 
 Chạy thử nhanh 5 câu mỗi biz trước khi chạy full:
 
 ```bash
-python main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
+python src/main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
 ```
 
 ## 🔧 Biến môi trường
@@ -81,35 +81,19 @@ python main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
 
 ```
 .
-├── agent.py          # Agent: schema-agnostic detection, prompt, SQL, self-correction
-├── data_loader.py    # Đọc Excel/CSV/SQLite → chuẩn hoá → 1 DB SQLite mỗi biz
-├── main.py           # Chạy batch 3000 câu, resume từ submission.jsonl
-├── requirements.txt  # Thư viện Python cần thiết
-├── rulebook.md       # Quy tắc nghiệp vụ chung (doanh thu, thời gian, format)
-├── Dockerfile        # Đóng gói image chạy inference
-└── .dockerignore
+├── src/            Mã nguồn chính (chạy cả trong Docker)      → src/README.md
+├── tools/          Công cụ chấm điểm / kiểm tra dữ liệu       → tools/README.md
+├── tests/          Test tự động (không cần mạng, không GPU)   → tests/README.md
+├── docs/           Tài liệu kiến trúc, runbook, handoff       → docs/README.md
+├── data/           Dữ liệu mẫu 30 cửa hàng (bộ train)         → data/README.md
+├── rulebook.md     Luật nghiệp vụ của bộ đề (đọc lúc chạy)
+├── calendar.csv    Lịch ngày lễ/sự kiện (đọc lúc chạy)
+├── run.sh          Điểm vào của Docker
+├── Dockerfile / .dockerignore / requirements.txt
+└── docs/index.html Trang HTML xem nhanh toàn bộ hướng dẫn
 ```
 
-## 📦 File `.dockerignore` (Cực kỳ quan trọng)
-Để tránh việc Docker copy nhầm những file rác vào trong Image (làm phình dung lượng), repo đã có sẵn `.dockerignore` (ngang hàng với `Dockerfile`):
+Mọi lệnh chạy từ **thư mục gốc repo** (vì `calendar.csv`, `rulebook.md` đọc theo thư mục hiện tại).
 
-```text
-data/
-tmp_db/
-.env
-*.jsonl
-*.xlsx
-*.log
-check_schema.py
-debug.py
-check_score.py
-*.report.json
-.schema_cache.json
-__pycache__/
-*.pyc
-```
-
-## 👥 Thành viên
-[Thành viên 1]
-
-[Thành viên 2]
+## 🔎 Xem hướng dẫn dễ hơn
+Mở `docs/index.html` bằng trình duyệt (không cần server).

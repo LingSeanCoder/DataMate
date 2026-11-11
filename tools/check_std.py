@@ -6,6 +6,7 @@ rồi tính bằng SQL cố định trên std_orders. Sai ở đây = lỗi tầ
     python check_std.py --answers /path/answers.jsonl [--db-dir tmp_db] [--biz biz_107] [-v]
 """
 from __future__ import annotations
+import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))  # dùng module trong src/
 
 import argparse
 import json

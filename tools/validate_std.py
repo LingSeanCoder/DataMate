@@ -6,6 +6,7 @@ Lệch nhỏ là bình thường (tổng đơn có thể gồm ship / trừ gi�
     python validate_std.py --db-dir tmp_db_dev
 """
 from __future__ import annotations
+import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))  # dùng module trong src/
 
 import argparse
 import sqlite3

@@ -47,7 +47,7 @@ cd DataMate
 python -m venv .venv
 # macOS/Linux: source .venv/bin/activate      Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py --data-root /duong/dan/toi/public_test/data \
+python src/main.py --data-root /duong/dan/toi/public_test/data \
   --questions /duong/dan/toi/public_test/questions.jsonl \
   --db-dir tmp_db_dev --rebuild --no-llm --overwrite \
   --out submission.jsonl --log run_log.jsonl
