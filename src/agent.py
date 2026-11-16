@@ -2968,6 +2968,10 @@ class DataMateAgent:
 
                 debug["final_sql"] = sql
                 outcome = self._execute_sql(sql)
+                debug.setdefault("code", []).append(sql)
+                debug.setdefault("output", []).append(
+                    {"columns": outcome.columns, "rows": outcome.rows, "error": outcome.error}
+                )
 
                 if outcome.error:
                     debug["attempts"].append({"sql": sql, "error": outcome.error})

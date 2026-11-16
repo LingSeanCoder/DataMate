@@ -1,11 +1,6 @@
-data/
 tmp_db/
 .env
-*.jsonl
-*.xlsx
-*.xls
 *.log
-*.report.json
 .schema_cache.json
 __pycache__/
 *.pyc
@@ -18,3 +13,4 @@ tmp_db_dev/
 DATASET/
 *.ipynb
 tasks/
+models/**/.cache/

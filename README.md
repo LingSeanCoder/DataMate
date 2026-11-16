@@ -1,19 +1,13 @@
 # DataMate - Zalo AI Challenge 2026
 
 ## 📌 Giới thiệu
-Đây là mã nguồn giải pháp cho bài toán Text-to-SQL (DataMate). Hệ thống sử dụng kiến trúc Agent Schema-Agnostic, có khả năng tự động nhận diện cấu trúc bảng/cột của bất kỳ doanh nghiệp nào mà không cần hardcode. Agent tự động sinh Dynamic Few-shot để hướng dẫn mô hình ngôn ngữ viết câu lệnh SQLite chính xác.
+Image dùng luật và Python/SQLite trong `src/` trước; khi luật trả `abstain`, `src/agent.py` gọi vLLM nội bộ để sinh SQL, thực thi truy vấn chỉ đọc và định dạng đáp án. `predict.sh` tự khởi động server GPU, chờ model sẵn sàng rồi chạy pipeline; không gọi API bên ngoài. Không phải mọi câu hỏi đều gọi model. Lỗi server lúc khởi động làm tiến trình thất bại, log ở `/result/logs/vllm.log`.
 
-## 🧠 Khai báo Model (Theo Rule 2)
-Hệ thống chỉ sử dụng **DUY NHẤT 1 model** tại thời điểm inference:
-- **Model:** `Qwen2.5-Coder-14B-Instruct` (định dạng GGUF, lượng tử hóa Q4_K_M).
-- **Số lượng tham số:** 14 tỷ (< 15 tỷ, thỏa mãn điều kiện cuộc thi).
-- **Engine:** `llama.cpp` (biên dịch từ source với CUDA hỗ trợ kiến trúc Blackwell RTX 5090).
+Model inference duy nhất: [Qwen/Qwen2.5-Coder-14B-Instruct](https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct), revision `aedcc2d42b622764e023cf882b6652e646b95671`, phát hành 06/11/2024, Apache-2.0, 14.770.033.664 tham số (dưới giới hạn 15B). BF16, tensor parallel 2 GPU, context 16384, seed 42, temperature 0; tokenizer và sáu shard phải nằm trong image. Server dùng vLLM 0.10.1.1/CUDA 12.8, theo stack Blackwell được guideline khuyến nghị. Đây là checkpoint gốc, không có adapter trong pipeline.
 
-## ⚙️ Kiến trúc Pipeline
-1. **Data Loading:** Đọc file Excel/CSV, làm sạch dữ liệu (tiền tệ, ngày tháng) và đẩy vào SQLite (`src/data_loader.py`).
-2. **Schema Linking:** Quét DB để tự động nhận diện vai trò các bảng (Bảng Đơn hàng, Bảng Danh mục, Bảng Lô hàng...) dựa trên kiểu dữ liệu và giao giá trị.
-3. **Prompting:** Sinh System Prompt động kèm Few-shot mẫu dựa trên schema thực tế của từng biz.
-4. **Execution:** Gọi Local LLM Server (`llama-server`) qua API OpenAI-compatible để sinh SQL, chạy thử trên SQLite, tự động sửa lỗi (self-correction) và format JSON kết quả.
+**Chưa có weights trong repo/image:** phải tải và build theo hướng dẫn dưới đây. Chưa kiểm thử image hoặc inference GPU tại đây; không xem cấu hình là bằng chứng chạy thành công.
+
+Trong image: `/code/src/` là mã inference, `/code/models/qwen2.5-coder-14b-instruct/` chứa checkpoint và manifest SHA-256, `/code/training_code/data/` là bản sao dữ liệu mẫu trong repo, `/code/training_code/data_manifest.json` liệt kê đường dẫn, kích thước và SHA-256 từng file dữ liệu. Dữ liệu được mô tả là 30 cửa hàng train, nhưng nguồn/version gốc, số mẫu train/validation, câu hỏi và đáp án train không được ghi nhận đầy đủ. Chưa có bằng chứng xác minh việc huấn luyện hoặc tạo dữ liệu trong lịch sử dự án; đội phải xác minh và bổ sung dữ liệu, mã, cấu hình, log, dependency và checkpoint nếu thực tế có sử dụng. Không dùng dữ liệu hoặc đáp án public/private test để train. Provenance và bằng chứng training chưa xác minh là blocker nộp.
 
 ### Bảng chuẩn `std_*` (tạo tự động cuối `build_database`, `src/std_layer.py`)
 Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe (rulebook §3, §4.1). Ưu tiên query 2 bảng này thay vì bảng gốc.
@@ -27,55 +21,40 @@ Cùng tên cột cho mọi shop; đã áp luật trạng thái/doanh thu/dedupe 
 Ví dụ: doanh thu tháng 5/2025 = `SELECT SUM(revenue) FROM std_orders WHERE is_valid=1 AND order_date BETWEEN '2025-05-01' AND '2025-05-31'`.
 Kiểm tra với đáp án train (không cần LLM): `python tools/check_std.py --answers answers.jsonl`.
 
-## 🚀 Hướng dẫn chạy Docker
+## Chuẩn bị và chạy GPU offline
 
-> Chạy thử từng bước cho thành viên (Docker hoặc Python, có lệnh so kết quả): xem [`docs/TEST.md`](docs/TEST.md).
-
-Image hiện tại là **bản chỉ chạy luật** (không cần GPU, không cần mạng): mỗi câu được trả lời bằng luật + `src/metrics.py` trên bảng `std_*`; câu luật không chắc thì bỏ trống. Bản có LLM sẽ thêm sau khi đo xong Phase 6 (đã đo: LLM làm giảm điểm nên tắt).
+Trên máy có mạng và đủ dung lượng trống (khoảng 30 GB weights, thêm chỗ cho image/cache/export), từ gốc repo:
 
 ```bash
-docker build -t datamate-submission .                       # máy chấm x86: thêm --platform linux/amd64
-docker run --rm --network=none \
-  -v /duong/dan/bo_de:/data:ro \
-  -v /duong/dan/ket_qua:/result \
-  datamate-submission
+python3 -m venv .venv
+source .venv/bin/activate
+pip install 'huggingface_hub==0.34.4'
+python tools/prepare_model.py
+docker build --platform linux/amd64 -t zaic2026_datamate_team:final .
 ```
 
-- `/data` là **bộ đề nguyên**: `questions.jsonl`, `data/<biz>/...`, `rulebook.md`, `calendar.csv` (rulebook và lịch của bộ đề được ưu tiên hơn bản trong image). Nếu chỉ mount các thư mục shop thì thêm `-e QUESTIONS=/duong/dan/questions.jsonl`.
-- Kết quả: `/result/submission.jsonl` (mỗi dòng `{"id","type","answer"}`), log ở `/result/logs/`, DB tạm ở `/result/tmp_db/`.
-- Đã thử: 1000 câu public, `--network=none`, 6,2 phút trên MacBook Air M3 (CPU), kết quả trùng khớp chạy ngoài Docker.
-- Biến môi trường: `WORKERS` (mặc định 4), `USE_LLM=1` (chỉ dùng khi image có llama-server — chưa có).
+Script tải đúng revision và tạo manifest SHA-256; build thất bại nếu thiếu thư mục hoặc manifest. Sau build mọi inference assets phải nằm trong image, không mount checkpoint từ host. Docker build cần mạng để lấy base image/dependencies. Dùng host Linux amd64 với hai RTX 5090, driver phù hợp CUDA 12.8 (R570+), Docker và NVIDIA Container Toolkit. Build cross-platform trên ARM không chứng minh GPU hoạt động.
 
-## 🖥️ Chạy trực tiếp (không Docker)
+Chạy hai lần bằng bộ đề đầy đủ (`questions.jsonl`, `data/`, `rulebook.md`, `calendar.csv`), đầu vào read-only và mạng tắt:
 
 ```bash
-# 1. Cài thư viện
-pip install -r requirements.txt
-
-# 2. Khởi động llama-server với model GGUF
-llama-server -m /path/to/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf \
-  --host 0.0.0.0 --port 8000 -c 8192 -ngl 99
-
-# 3. Chạy inference
-python src/main.py --data-root ./data --skip-build \
-  --out ./submission.jsonl --log ./run_log.jsonl
+mkdir -p out1 out2
+for out in out1 out2; do
+  docker run --rm --gpus '"device=0,1"' --network none --shm-size=16g \
+    --entrypoint bash -v /absolute/path/to/public_test:/data:ro \
+    -v "$(pwd)/$out:/result" zaic2026_datamate_team:final /code/predict.sh
+done
 ```
 
-Chạy thử nhanh 5 câu mỗi biz trước khi chạy full:
+Startup cho phép tối đa 900 giây; kiểm tra `out1/logs/vllm.log` nếu thất bại. Toàn bộ loading và inference phải dưới 6 giờ. Máy CPU có thể kiểm thử riêng pipeline luật bằng `python src/main.py --data-root data --questions /path/to/questions.jsonl --out /tmp/submission.jsonl --log /tmp/run_log.jsonl --db-dir /tmp/datamate-db --overwrite --no-llm`; đây không phải đường chạy image nộp hoặc kiểm thử model.
+
+Kiểm tra đủ câu và log, so sánh theo ID (thứ tự kết quả có thể khác):
 
 ```bash
-python src/main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
+python -c 'import json; from pathlib import Path; load=lambda p:[json.loads(x) for x in Path(p).read_text().splitlines() if x.strip()]; q=load("/absolute/path/to/public_test/questions.jsonl"); a=load("out1/submission.jsonl"); b=load("out2/submission.jsonl"); l=load("out1/logs/run_log.jsonl"); ids=lambda rows:[str(r["id"]) for r in rows]; assert len(ids(q))==len(set(ids(q))) and set(ids(q))==set(ids(a))==set(ids(b))==set(ids(l)) and len(q)==len(a)==len(b)==len(l); assert all(isinstance(r["elapsed_ms"],int) and r["elapsed_ms"]>=0 and "thinking" in r and "answer" in r for r in l); assert {str(r["id"]):r for r in a}=={str(r["id"]):r for r in b}; print("Coverage, logs and repeatability OK")'
 ```
 
-## 🔧 Biến môi trường
-
-| Biến | Ý nghĩa |
-|---|---|
-| `LOCAL_LLM_BASE_URL` | Base URL của `llama-server` (mặc định `http://localhost:8000/v1`) |
-| `LOCAL_LLM_API_KEY` | API key cho server local (mặc định `local`) |
-| `LOCAL_LLM_MODEL` | Tên model báo cho server (mặc định `local`) |
-| `NIM_API_KEY` | (Dự phòng) API key NVIDIA NIM nếu không dùng server local |
-| `DATAMATE_PROMPT_BUDGET` | Trần token input mỗi câu (mặc định 6300) |
+Kiểm tra này không chứng minh điểm, runtime trên máy BTC, tính hợp lệ provenance hay đầy đủ artifacts. Trước khi nộp phải chạy thực tế hai GPU offline, kiểm tra thời gian 6 giờ và tính ổn định/PA, image `linux/amd64` và artifacts. Đổi `team` thành tên team chữ thường. Export bằng `set -o pipefail; docker save zaic2026_datamate_team:final | gzip > zaic2026_datamate_team.tar.gz`; kiểm tra `gzip -dc zaic2026_datamate_team.tar.gz | wc -c` không vượt 100 GB, tạo MD5 bằng `md5 -r` (macOS) hoặc `md5sum` (Linux), rồi gửi archive, checksum và kích thước tar theo guideline.
 
 ## 📁 Cấu trúc thư mục
 
@@ -88,7 +67,7 @@ python src/main.py --data-root ./data --limit-per-biz 5 --overwrite --show-sql
 ├── data/           Dữ liệu mẫu 30 cửa hàng (bộ train)         → data/README.md
 ├── rulebook.md     Luật nghiệp vụ của bộ đề (đọc lúc chạy)
 ├── calendar.csv    Lịch ngày lễ/sự kiện (đọc lúc chạy)
-├── run.sh          Điểm vào của Docker
+├── predict.sh      Điểm vào inference của Docker
 ├── Dockerfile / .dockerignore / requirements.txt
 └── docs/index.html Trang HTML xem nhanh toàn bộ hướng dẫn
 ```

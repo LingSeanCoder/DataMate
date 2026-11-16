@@ -164,24 +164,23 @@ def run_business(
     done_ids: set[str],
 ) -> dict:
     started = time.monotonic()
+    question_started = time.monotonic()
     summary = {"business_id": biz_id, "questions": len(questions), "written": 0,
                "errors": 0, "built": False, "warning": None}
 
+    warning = None
+    db_path = None
     if not biz_id:
-        summary["warning"] = "Câu hỏi thiếu business_id"
-        return summary
-
-    try:
-        db_path, built, warning = ensure_database(
-            biz_id, data_root, db_dir, args.rebuild, args.skip_build
-        )
-        summary["built"] = built
-        summary["warning"] = warning
-        if warning:
-            return summary
-    except Exception as exc:  # noqa: BLE001
-        summary["warning"] = f"Build DB lỗi: {type(exc).__name__}: {exc}"
-        return summary
+        warning = "Câu hỏi thiếu business_id"
+    else:
+        try:
+            db_path, built, warning = ensure_database(
+                biz_id, data_root, db_dir, args.rebuild, args.skip_build
+            )
+            summary["built"] = built
+        except Exception as exc:  # noqa: BLE001
+            warning = f"Build DB lỗi: {type(exc).__name__}: {exc}"
+    summary["warning"] = warning
 
     biz_dir = data_root / biz_id
     readme_file = _readme_path(biz_dir)
@@ -222,9 +221,14 @@ def run_business(
 
     def work(item: dict) -> tuple[dict, dict]:
         q = {"question": item["question"], "as_of_date": item["as_of_date"], "business_id": biz_id}
+        if warning:
+            return item, {"id": item["id"], "type": "abstain"}, {"note": warning}
         answer = rules_answer(q, str(db_path))
         if answer.get("type") != "abstain" or args.no_llm:
-            return item, {"id": item["id"], **answer}, {"route": "rules"}
+            return item, {"id": item["id"], **answer}, {
+                "route": "rules", "code": "src/run_rules.py::answer",
+                "inputs": {"q": q, "db_path": str(db_path)}, "output": answer,
+            }
         agent = get_agent()
         if agent is None:
             return item, {"id": item["id"], "type": "abstain"}, {"route": "rules", "note": "không có LLM"}
@@ -255,6 +259,8 @@ def run_business(
                     "question": item["question"],
                     "as_of_date": item["as_of_date"],
                     "answer": answer,
+                    "elapsed_ms": max(0, int((time.monotonic() - question_started) * 1000)),
+                    "thinking": None,
                     **{k: v for k, v in debug.items() if k not in ("id", "question")},
                 }
                 log_fh.write(json.dumps(log_record, ensure_ascii=False, default=str) + "\n")
@@ -387,18 +393,21 @@ def run_batch(args: argparse.Namespace) -> int:
     print(f"Tổng {len(questions)} câu / {len(groups)} doanh nghiệp.")
     print(f"Data root : {data_root}")
     print(f"DB dir    : {db_dir}")
-    model_name = (
-        args.model
-        or os.getenv("LOCAL_LLM_MODEL")
-        or os.getenv("NIM_MODEL")
-        or DEFAULT_MODEL
-    )
-    endpoint = (
-        os.getenv("LOCAL_LLM_BASE_URL", "").strip()
-        or "https://integrate.api.nvidia.com/v1"
-    )
-    print(f"Model     : {model_name}")
-    print(f"Endpoint  : {endpoint}\n")
+    if args.no_llm:
+        print("Model     : disabled (rules only)\n")
+    else:
+        model_name = (
+            args.model
+            or os.getenv("LOCAL_LLM_MODEL")
+            or os.getenv("NIM_MODEL")
+            or DEFAULT_MODEL
+        )
+        endpoint = (
+            os.getenv("LOCAL_LLM_BASE_URL", "").strip()
+            or "https://integrate.api.nvidia.com/v1"
+        )
+        print(f"Model     : {model_name}")
+        print(f"Endpoint  : {endpoint}\n")
 
     limiter = TokenRateLimiter(args.itpm)
     write_lock = threading.Lock()
